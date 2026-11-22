@@ -10,14 +10,16 @@ npm link                 # once: puts `drawpad` on PATH
 cd ~/some/project
 mkdir .drawpad           # or let the first `drawpad add` create it
 drawpad open             # starts the per-project server on demand, opens the board in its own window
-drawpad app              # optional: ~/Applications/DrawPad <project>.app for Spotlight and the Dock
+drawpad app              # once: ~/Applications/DrawPad.app, one launcher for all boards (Dock/Spotlight)
 drawpad help
 ```
 
 `open` uses Chrome's app mode (a window without tabs or address bar) in a DrawPad-only Chrome profile, so it runs
 as its own instance whether or not your Chrome is open. Each project gets a fixed port, so
-the window keeps its size and position. The launcher pins the current Node path; run `drawpad app` again
-after switching Node versions.
+the window keeps its size and position, and opening a board again replaces its old window (one per board).
+The DrawPad launcher lists every project whose board has been opened (most recent first) and opens the
+one you pick; with a single project it opens it directly. It pins the current Node path; run `drawpad app`
+again after switching Node versions.
 
 ## Claude Code hook
 

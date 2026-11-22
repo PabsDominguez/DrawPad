@@ -24,7 +24,8 @@ const HELP = `drawpad: shared visual board for a human and an agent
   section "Title" [keys...]  move <key> --at x,y  archive|restore <key>
   hook                       one line when feedback waits (UserPromptSubmit hook)
   wait [--timeout S]         blocks until feedback waits and the human paused ~8s
-  open                       board in its own window      app   make a Dock/Spotlight launcher
+  open                       board in its own window
+  app                        make ~/Applications/DrawPad.app (pick a project, open its board)
   serve [--port P]  url  stats`;
 
 const BOOL = new Set(['crops', 'json', 'help', 'quiet']);
@@ -120,28 +121,53 @@ function openWindow(url: string) {
   execFileSync('open', ['-n', '-a', CHROME.replace(/\/Contents\/.*/, ''), '--args', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', `--app=${url}`]);
 }
 
-// ~/Applications/DrawPad <Project>.app: a minimal launcher (shell-script bundle) for Spotlight and the Dock.
+// Projects that have had a board open, most recent first (for the DrawPad launcher's list).
+const REGISTRY = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'projects.json');
+function projects(): string[] {
+  try { return (JSON.parse(fs.readFileSync(REGISTRY, 'utf8')) as string[]).filter(r => fs.existsSync(path.join(r, '.drawpad', 'board.json'))); } catch { return []; }
+}
+function remember(r: string) {
+  fs.mkdirSync(path.dirname(REGISTRY), { recursive: true });
+  fs.writeFileSync(REGISTRY, JSON.stringify([r, ...projects().filter(x => x !== r)], null, 1));
+}
+
+// `drawpad pick`: choose a project from a small macOS list and open its board.
+function pick(): string {
+  const list = projects();
+  if (!list.length) fail('no DrawPad projects yet: run `drawpad open` inside a project first');
+  let chosen = list[0];
+  if (list.length > 1) {
+    const names = list.map(r => path.basename(r));
+    const as = (x: string) => `"${x.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    const res = execFileSync('osascript', ['-e', `choose from list {${names.map(as).join(', ')}} with title "DrawPad" with prompt "Open which board?" default items {${as(names[0])}}`], { encoding: 'utf8' }).trim();
+    if (res === 'false') return 'cancelled';
+    chosen = list[names.indexOf(res)];
+  }
+  remember(chosen);
+  return execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', fileURLToPath(import.meta.url), 'open'], { cwd: chosen, encoding: 'utf8' }).trim();
+}
+
+// ~/Applications/DrawPad.app: one launcher for all projects (Spotlight and the Dock).
 function makeApp(): string {
-  if (!findRoot()) fail('run this inside a project with a .drawpad folder');
-  const name = `DrawPad ${path.basename(root)}`;
-  const app = path.join(os.homedir(), 'Applications', `${name}.app`);
+  const app = path.join(os.homedir(), 'Applications', 'DrawPad.app');
   const q = (x: string) => `'${x.replace(/'/g, `'\\''`)}'`;
   fs.rmSync(app, { recursive: true, force: true });
   fs.mkdirSync(path.join(app, 'Contents', 'MacOS'), { recursive: true });
   fs.writeFileSync(path.join(app, 'Contents', 'MacOS', 'launch'),
-    `#!/bin/sh\ncd ${q(root)} && exec ${q(process.execPath)} --disable-warning=ExperimentalWarning ${q(fileURLToPath(import.meta.url))} open\n`, { mode: 0o755 });
+    `#!/bin/sh\nexec ${q(process.execPath)} --disable-warning=ExperimentalWarning ${q(fileURLToPath(import.meta.url))} pick\n`, { mode: 0o755 });
   fs.writeFileSync(path.join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleName</key><string>${name}</string>
-<key>CFBundleIdentifier</key><string>local.drawpad.${path.basename(root).replace(/[^\w]/g, '')}</string>
+<key>CFBundleName</key><string>DrawPad</string>
+<key>CFBundleIdentifier</key><string>local.drawpad.launcher</string>
 <key>CFBundleExecutable</key><string>launch</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSUIElement</key><true/>
 </dict></plist>
 `);
+  if (findRoot()) remember(root);
   try { execFileSync('mdimport', [app], { stdio: 'ignore' }); } catch { /* Spotlight picks it up later */ }
-  return `${app}\nOpen it from Spotlight ("${name}") or drag it to the Dock.`;
+  return `${app}\nOne launcher for all boards: Spotlight "DrawPad" or drag it to the Dock.`;
 }
 
 async function main() {
@@ -150,12 +176,14 @@ async function main() {
     case 'serve': {
       const { serve } = await import('./server.ts');
       const port = await serve(root, num('port') ?? 0);
+      remember(root);
       if (!fl.quiet) console.log(`DrawPad for ${root}\nhttp://127.0.0.1:${port}/`);
       return;
     }
     case 'url': return out(await server() + '/');
     case 'open': { const u = await server() + '/'; openWindow(u); return out(u); }
     case 'app': return out(makeApp());
+    case 'pick': return out(pick());
     case 'board': {
       const q = new URLSearchParams();
       if (str('since')) q.set('since', str('since')!);
