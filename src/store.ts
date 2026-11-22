@@ -22,7 +22,6 @@ export class Store {
   p: ReturnType<typeof paths>;
   board: Board;
   onChange: ((rev: number) => void)[] = [];
-  waiters: (() => void)[] = [];
 
   constructor(root: string) {
     this.root = root;
@@ -103,7 +102,7 @@ export class Store {
     if (a.color) it.color = a.color;
     if (a.source) it.source = a.source;
     if (by === 'agent') it.seenByHuman = false;
-    else { it.sent = undefined; it.delivered = false; }
+    else this.fromHuman(it, rev);
 
     // size
     if (a.kind === 'image') {
@@ -144,7 +143,8 @@ export class Store {
     } catch { /* title stays empty */ }
   }
 
-  move(ref: string, x: number, y: number, w?: number, h?: number, by: By = 'agent'): string {
+  // section: set explicitly (used by undo; null = loose) instead of inferring it from the drop point.
+  move(ref: string, x: number, y: number, w?: number, h?: number, by: By = 'agent', section?: string | null): string {
     const it = this.find(ref);
     const rev = this.bump();
     const dx = x - it.x, dy = y - it.y;
@@ -154,7 +154,8 @@ export class Store {
     it.rev = rev;
     // Dragging never takes an item out of its section (the box stretches to follow it).
     // Dropping it inside another section's box moves it into that section.
-    if (by === 'human' && it.kind !== 'arrow' && (dx || dy)) {
+    if (section !== undefined) it.section = section ?? undefined;
+    else if (by === 'human' && it.kind !== 'arrow' && (dx || dy)) {
       const into = this.sectionAt(it.x + it.w / 2, it.y + it.h / 2, it.id);
       const own = this.board.sections.find(s => s.id === it.section);
       if (into && into.id !== it.section) it.section = into.id;
@@ -218,23 +219,58 @@ export class Store {
     const rev = this.bump();
     const cur = it.versions[it.versions.length - 1];
     if (f.text !== undefined) {
-      if (it.sent === undefined) cur.text = f.text;
+      // Rewrites in place until the agent has read it; after that an edit is a new version.
+      if (!it.delivered) cur.text = f.text;
       else it.versions.push({ v: cur.v + 1, at: now(), text: f.text });
       it.h = f.h ?? textHeight(f.text, it.w);
     }
     if (f.w) it.w = f.w;
     if (f.title !== undefined) it.title = f.title;
     if (f.intent && it.comment) it.comment.intent = f.intent;
-    if (by === 'human') { it.sent = undefined; it.delivered = false; }
+    if (by === 'human') this.fromHuman(it, rev);
     it.rev = rev;
     this.save();
     return line(this, it);
   }
 
+  // Human feedback goes to the agent as soon as it is saved (no draft/send step).
+  lastHuman = 0;
+  private fromHuman(it: Item, rev: number) { it.sent = rev; it.delivered = false; this.lastHuman = Date.now(); }
+
+  // Moves a comment's pin (and region); the comment is re-delivered with the new crop.
+  repin(ref: string, point: [number, number], region?: [number, number, number, number], crop?: string): string {
+    const it = this.find(ref);
+    if (!it.comment) throw new Error(`${it.key} is not a comment`);
+    const rev = this.bump();
+    it.comment.point = point;
+    if (region) it.comment.region = region; else delete it.comment.region;
+    if (crop) it.comment.crop = path.basename(crop);
+    for (const a of this.board.items) if (a.kind === 'arrow' && a.from === it.id && a.to === it.comment.target) { a.toPoint = point; a.rev = rev; }
+    it.rev = rev;
+    if (it.createdBy === 'human') this.fromHuman(it, rev);
+    this.save();
+    return `${it.key} pin @${point.map(v => v.toFixed(2))}`;
+  }
+
+  // The human has looked at these agent items.
+  seen(ids: string[]): string {
+    const its = this.board.items.filter(i => ids.includes(i.id) && !i.seenByHuman);
+    if (!its.length) return 'seen 0';
+    const rev = this.bump();
+    for (const i of its) { i.seenByHuman = true; i.rev = rev; }
+    this.save();
+    return `seen ${its.length}`;
+  }
+
   setState(ref: string, state: Item['state']): string {
     const it = this.find(ref);
     it.state = state; it.rev = this.bump();
-    for (const a of this.board.items) if (a.kind === 'arrow' && (a.from === it.id || a.to === it.id) && a.state !== state && state === 'archived') { a.state = 'archived'; a.rev = it.rev; }
+    // Arrows follow their ends: archived with either end, restored when both ends are back.
+    for (const a of this.board.items) {
+      if (a.kind !== 'arrow' || (a.from !== it.id && a.to !== it.id) || a.state === state) continue;
+      const other = this.board.items.find(o => o.id === (a.from === it.id ? a.to : a.from));
+      if (state === 'archived' || other?.state === 'active') { a.state = state; a.rev = it.rev; }
+    }
     this.save();
     return `${it.key} ${state}`;
   }
@@ -246,6 +282,7 @@ export class Store {
       createdBy: by, round: this.board.round, createdAt: now(), rev, seenByHuman: by === 'human', from: from.id, to: to.id };
     if (toPoint) a.toPoint = toPoint;
     if (label) a.label = label;
+    if (by === 'human') this.fromHuman(a, rev);
     this.board.items.push(a);
     this.save();
     return `${a.key} ${from.key} -> ${to.key}${toPoint ? ` @${toPoint.map(v => v.toFixed(2))}` : ''}`;
@@ -263,6 +300,7 @@ export class Store {
     if (c.point) it.comment!.point = c.point;
     if (c.region) it.comment!.region = c.region;
     if (c.crop) it.comment!.crop = path.basename(c.crop);
+    if (c.by === 'human') this.fromHuman(it, rev);
     // Beside the target at the point's height; under the target when a neighbour is in the way.
     const right = { x: t.x + t.w + GAP, y: Math.round(t.y + (c.point ? c.point[1] * t.h : 0) - 20), w, h };
     const blocked = solid(this.board).some(o => !o.comment && o.id !== t.id &&
@@ -278,17 +316,30 @@ export class Store {
     const a: Item = { id: `i${n}`, key: `a-${from.key}`, kind: 'arrow', x: 0, y: 0, w: 0, h: 0, z: n, state: 'active', versions: [{ v: 1, at: now() }],
       createdBy: by, round: this.board.round, createdAt: now(), rev: this.board.revision, seenByHuman: by === 'human', from: from.id, to: to.id };
     if (toPoint) a.toPoint = toPoint;
+    if (by === 'human') a.sent = a.rev;
     this.board.items.push(a);
   }
 
   reply(ref: string, text: string, by: By): string {
     const it = this.find(ref);
     if (!it.comment) throw new Error(`${it.key} is not a comment`);
-    it.comment.thread.push({ by, text, at: now() });
-    it.rev = this.bump();
-    if (by === 'agent') it.seenByHuman = false;
+    const rev = this.bump();
+    it.comment.thread.push({ by, text, at: now(), ...(by === 'human' ? { sent: rev } : {}) });
+    it.rev = rev;
+    if (by === 'agent') it.seenByHuman = false; else this.lastHuman = Date.now();
     this.save();
     return `${it.key} replied (${it.comment.thread.length})`;
+  }
+
+  // Undo for the human's last reply.
+  unreply(ref: string): string {
+    const it = this.find(ref);
+    const th = it.comment?.thread ?? [];
+    const i = th.map(t => t.by).lastIndexOf('human');
+    if (i < 0) throw new Error(`no human reply on ${it.key}`);
+    th.splice(i, 1);
+    it.rev = this.bump(); this.save();
+    return `${it.key} reply removed`;
   }
 
   setStatus(ref: string, status: 'open' | 'addressed' | 'resolved', artifact?: string): string {
@@ -302,38 +353,33 @@ export class Store {
     return `${it.key} ${status}${artifact ? ` in ${artifact}` : ''}`;
   }
 
-  react(ref: string, kind: 'approve' | 'reject', reason?: string): string {
+  // kind undefined = withdraw (undo). Every pick is logged to decisions.md straight away.
+  react(ref: string, kind?: 'approve' | 'reject', reason?: string): string {
     const it = this.find(ref);
-    it.reaction = { kind, reason, version: it.versions[it.versions.length - 1].v };
-    it.rev = this.bump();
+    const rev = this.bump();
+    const v = it.versions[it.versions.length - 1].v;
+    const day = now().slice(0, 10);
+    if (kind) {
+      it.reaction = { kind, reason, version: v, sent: rev, delivered: false };
+      fs.appendFileSync(this.p.decisions, `- ${day} ${kind} ${it.key} v${v}${reason ? `: ${reason}` : ''}\n`);
+    } else if (it.reaction) {
+      fs.appendFileSync(this.p.decisions, `- ${day} withdrew ${it.reaction.kind} ${it.key} v${it.reaction.version}\n`);
+      delete it.reaction;
+    }
+    it.rev = rev;
+    this.lastHuman = Date.now();
     this.save();
-    return `${it.key} ${kind}`;
+    return `${it.key} ${kind ?? 'unmarked'}`;
   }
 
-  // Human "Send feedback": drafts become visible to the agent.
-  send(): string {
-    const rev = this.bump();
+  // Called when the agent takes a feedback batch: closes the round and snapshots the board.
+  closeRound() {
     const b = this.board;
-    let n = 0;
-    const decisions: string[] = [];
-    const day = now().slice(0, 10);
-    for (const it of b.items) {
-      if (it.createdBy === 'human' && it.sent === undefined && it.state === 'active') { it.sent = rev; it.delivered = false; n++; }
-      if (it.reaction && it.reaction.sent === undefined) {
-        it.reaction.sent = rev; it.reaction.delivered = false; n++;
-        decisions.push(`- ${day} ${it.reaction.kind} ${it.key} v${it.reaction.version}${it.reaction.reason ? `: ${it.reaction.reason}` : ''}`);
-      }
-      for (const t of it.comment?.thread ?? []) if (t.by === 'human' && t.sent === undefined) { t.sent = rev; n++; }
-      if (it.createdBy === 'agent') it.seenByHuman = true;
-    }
-    if (decisions.length) fs.appendFileSync(this.p.decisions, decisions.join('\n') + '\n');
     b.rounds.push({ id: b.round, at: now(), label: `Round ${b.round}, ${new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` });
     b.round++;
+    b.revision++;
     this.save();
-    fs.writeFileSync(path.join(this.p.history, `rev-${rev}.json`), JSON.stringify(b));
-    const w = this.waiters; this.waiters = [];
-    for (const f of w) f();
-    return `sent ${n}`;
+    fs.writeFileSync(path.join(this.p.history, `rev-${b.revision}.json`), JSON.stringify(b));
   }
 
   // Counts of sent-but-undelivered feedback.
@@ -364,5 +410,11 @@ export function line(s: Store, it: Item): string {
 function migrate(b: Board): Board {
   if (b.schemaVersion > SCHEMA) throw new Error(`board.json schema ${b.schemaVersion} is newer than this drawpad`);
   b.schemaVersion = SCHEMA;
+  // Boards from before drafts were dropped: anything still a draft counts as sent.
+  for (const it of b.items) {
+    if (it.createdBy === 'human' && it.sent === undefined) { it.sent = b.revision; it.delivered = false; }
+    if (it.reaction && it.reaction.sent === undefined) { it.reaction.sent = b.revision; it.reaction.delivered = false; }
+    for (const t of it.comment?.thread ?? []) if (t.by === 'human' && t.sent === undefined) t.sent = b.revision;
+  }
   return b;
 }

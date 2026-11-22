@@ -91,3 +91,10 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
   border-radius: 6px; padding: 5px 12px; color: var(--dim); pointer-events: none; opacity: 0; transition: opacity .2s; }
 #hint.show { opacity: 1; }
 #hint.err { color: var(--warn); }
+
+#view.hand, #view.hand * { cursor: grab !important; }
+#view.hand.panning, #view.hand.panning * { cursor: grabbing !important; }
+#arrows .pinh { fill: var(--warn); stroke: #fff; pointer-events: all; cursor: move; }
+#selbar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.comment.done { opacity: .55; }
+.sectitle[contenteditable="true"], #outline [contenteditable="true"] { outline: 2px solid var(--accent); background: var(--card); cursor: text; border-radius: 3px; }

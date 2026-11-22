@@ -22,7 +22,7 @@ export function serve(root: string, port = 0): Promise<number> {
   const ops: Record<string, (a: any) => string> = {
     add: a => store.add(a),
     many: a => (a.items as any[]).map(x => { try { return store.add(x); } catch (e) { return `${x.key ?? '?'} error: ${(e as Error).message}`; } }).join('\n'),
-    move: a => store.move(a.id, a.x, a.y, a.w, a.h, a.by),
+    move: a => store.move(a.id, a.x, a.y, a.w, a.h, a.by, a.section),
     moveSection: a => store.moveSection(a.id, a.dx, a.dy),
     renameSection: a => store.renameSection(a.id, a.title),
     section: a => store.section(a.title, a.keys ?? []),
@@ -33,11 +33,12 @@ export function serve(root: string, port = 0): Promise<number> {
     arrow: a => store.arrow(a.from, a.to, a.by ?? 'agent', a.toPoint, a.label, a.key),
     comment: a => store.comment(a),
     reply: a => store.reply(a.id, a.text, a.by ?? 'agent'),
+    unreply: a => store.unreply(a.id),
     done: a => store.setStatus(a.id, 'addressed', a.artifact),
-    resolve: a => store.setStatus(a.id, 'resolved'),
-    reopen: a => store.setStatus(a.id, 'open'),
+    status: a => store.setStatus(a.id, a.status),
     react: a => store.react(a.id, a.kind, a.reason),
-    send: () => store.send(),
+    repin: a => store.repin(a.id, a.point, a.region, a.crop),
+    seen: a => store.seen(a.ids ?? []),
   };
 
   const tsCache = new Map<string, string>();
@@ -82,11 +83,14 @@ export function serve(root: string, port = 0): Promise<number> {
         return send(res, 200, feedbackText(store, a));
       }
       if (p === '/api/wait') {
-        const done = () => { if (!res.writableEnded) send(res, 200, hookLine(store.pending())); };
-        if (store.pending().total) return done();
-        store.waiters.push(done);
-        const t = Number(u.searchParams.get('timeout') ?? 0);
-        if (t) setTimeout(() => { store.waiters = store.waiters.filter(w => w !== done); if (!res.writableEnded) send(res, 200, 'timeout'); }, t * 1000);
+        // Returns once feedback is waiting and the human has paused (no new feedback for QUIET ms).
+        const QUIET = 8000, t = Number(u.searchParams.get('timeout') ?? 0), until = t ? Date.now() + t * 1000 : Infinity;
+        const tick = setInterval(() => {
+          if (res.writableEnded) return clearInterval(tick);
+          if (store.pending().total && Date.now() - store.lastHuman >= QUIET) { clearInterval(tick); send(res, 200, hookLine(store.pending())); }
+          else if (Date.now() >= until) { clearInterval(tick); send(res, 200, 'timeout'); }
+        }, 500);
+        req.on('close', () => clearInterval(tick));
         return;
       }
       if (p === '/api/upload' && req.method === 'POST') {

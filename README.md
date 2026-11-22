@@ -22,13 +22,15 @@ In the project's `.claude/settings.json`, so new feedback shows up in context ea
 { "hooks": { "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "drawpad hook" } ] } ] } }
 ```
 
-Or run `drawpad wait` as a background command; it returns when the human presses Send.
+Or run `drawpad wait` as a background command; it returns once feedback is waiting and the human
+has paused for ~8 seconds.
 
 ## Human controls
 
-V select · A arrow · C comment (click a spot, or drag a region) · F fit · Esc · Backspace archive · ⌘Z restore.
+V select · C comment (click a spot, or drag a region; drag a pin later to move it) · Space hand ·
+F fit · Esc · Backspace archive · ⌘Z undo · ⇧⌘Z redo · double-click a section title to rename it.
 Paste an image, URL or text anywhere; drop image files; double-click empty space to write a card.
-Nothing reaches the agent until **Send feedback**.
+A comment goes to the agent when you save it (Enter); there is no Send step.
 
 Sections: an item belongs to a section until it is dropped inside another section's box. Dragging it
 past its own section's edge only stretches the box; it never makes the item loose. Pasted items join the

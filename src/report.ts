@@ -111,7 +111,7 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
     for (const i of items) i.delivered = true;
     for (const i of reacts) i.reaction!.delivered = true;
     for (const r of replies) r.t.delivered = true;
-    if (items.length + reacts.length + replies.length) s.save();
+    if (items.length + reacts.length + replies.length) s.closeRound();
   }
 }
 

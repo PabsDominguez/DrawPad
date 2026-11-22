@@ -23,7 +23,7 @@ const HELP = `drawpad: shared visual board for a human and an agent
   arrow <from> <to> [--point x,y] [--label L]
   section "Title" [keys...]  move <key> --at x,y  archive|restore <key>
   hook                       one line when feedback waits (UserPromptSubmit hook)
-  wait [--timeout S]         blocks until the human presses Send
+  wait [--timeout S]         blocks until feedback waits and the human paused ~8s
   serve [--port P]  open  url  stats`;
 
 const BOOL = new Set(['crops', 'json', 'help', 'quiet']);

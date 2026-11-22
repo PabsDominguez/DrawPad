@@ -1,6 +1,9 @@
 # DrawPad: a visual working space for building apps with an AI agent
 
-Status: draft v2, 2026-11-22.
+Status: draft v3, 2026-11-22.
+v3 changes (after the first Liftor test): no Send step, human feedback reaches the agent when saved;
+no arrow tool for the human (pin + note covers it); Cmd+Z / Shift+Cmd+Z undo; draggable comment pins;
+pin crops are the whole image with the pin drawn on it.
 v2 changes: custom canvas confirmed (tldraw rejected, see 7); human toolkit is image / text / link / arrow;
 CLI-first agent interface and token budgets added; agent-made mockups (design-system sheets, screens
 from code) are read-only for the human and come right after the MVP.
@@ -28,7 +31,7 @@ not needed here. DrawPad deliberately has no design tools, no styling panels, no
 ### Principles
 - **The agent authors; the human guides.** No design tools for the human. No shape
   drawing, no text styling, no layout editing of mockup content. The human's toolkit is
-  deliberately small: add an image, add text, add a link, draw an arrow.
+  deliberately small: add an image, add text, add a link, pin a comment.
 - **Feedback must reach the agent as data.** A comment is text + the exact target
   + a crop image + the artifact version it was made on. Nothing the agent has to guess.
 - **Files, not a service.** One folder per project, diffable, offline, in git.
@@ -44,7 +47,7 @@ not needed here. DrawPad deliberately has no design tools, no styling panels, no
 | Add HTML mockup (design-system sheet, screen, any size) | yes | no |
 | Add link card (URL + title) | yes | yes (paste URL) |
 | Add text card (markdown, any length) | yes | yes (type or paste text) |
-| Add arrow (item to item, or item to a point on an item) | yes | yes |
+| Add arrow (item to item, or item to a point on an item) | yes | no (comment pins only) |
 | Comment (text card + arrow to a target) | yes (own notes) | yes |
 | Create / rename section | yes | rename only |
 | Group as options, relate artifacts | yes | no |
@@ -112,16 +115,18 @@ The file carries a `schemaVersion` with migrations.
 - **Unseen badge** on items added since the last visit; "next unseen" key.
 - **Add**: paste an image anywhere = new image item at the cursor. Paste a URL = link card.
   Paste text, or double-click empty space and type = text card.
-- **Arrow tool**: drag from one item to another, or to a spot on an item. Selected ends can be
-  re-dragged. Optional label.
+- **Arrows**: agent only (`drawpad arrow`). The human points at things with comment pins.
 - **Comment**: click a spot on an artifact. A text card is created beside it with an arrow to
   that point; type, Enter to save. Optional drag to set a crop region, intent quick-pick.
-  Typed text only, no handwriting or freehand.
+  Typed text only, no handwriting or freehand. The pin can be dragged later (new crop, re-delivered).
+- **Undo / redo**: Cmd+Z and Shift+Cmd+Z for the human's own actions (move, add, archive, edit, pin,
+  reply, pick, rename). Space held = hand tool for panning.
 - Option groups show A/B/C side by side with a "pick this one" button and an optional reason.
 - Version stepper on mockups and images (compare previous and current).
 - Archive: dimmed, collapsed rows. One key to archive or restore.
-- **Send feedback** button: marks all open comments, new human items, picks and reactions as "sent".
-  The agent only sees sent items. A draft state keeps half-finished thoughts private.
+- **No Send step** (decided 2026-11-22): a comment is private while it is being typed and goes to the
+  agent once saved (Enter). The human talks to the agent in chat anyway; the hook announces what
+  is waiting on the next prompt. A round closes when the agent takes a batch with `drawpad feedback`.
 - Search and minimap are optional and come last.
 
 ### Rendering
@@ -198,8 +203,8 @@ All placement is semantic; the tool avoids overlaps.
 - Pull alone is the weak point. Provide both:
   1. a Claude Code `UserPromptSubmit` hook (`drawpad hook`) that prints "N open comments, M picks on
      DrawPad" into context each turn, only when there is something new;
-  2. `drawpad wait`: blocks until the human presses Send, for use as a background command so the
-     agent is woken by it.
+  2. `drawpad wait`: blocks until feedback is waiting and the human has paused for ~8s, for use as a
+     background command so the agent is woken by it.
 - `intent` on each comment tells the agent whether it is a change request, a question, a bug, or
   "keep this". A `keep` comment is never treated as a to-do.
 
@@ -223,7 +228,7 @@ freehand or shape drawing, human editing of mockups.
   decisions.md       append-only log of picks/approvals/rejections with reasons
   shared/            tokens.css, fonts, HTML partials for mockups
   assets/            images, mockup html, snapshots, comment crops
-  history/           board.json snapshots (one per sent-feedback and per agent round)
+  history/           board.json snapshots (one per feedback round taken by the agent)
 ```
 Git-friendly. Writes are atomic. A single tool install serves many projects (each `.drawpad/` is independent).
 

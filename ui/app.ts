@@ -1,18 +1,23 @@
-// DrawPad board UI: custom minimal canvas (transformed div + one SVG layer for arrows).
+// DrawPad board UI: custom minimal canvas (transformed div + one SVG layer for arrows and pins).
 import type { Board, Item, Intent, Section } from '../src/types.ts';
 
 const PAD = 24, THUMB_W = 640;
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 const view$ = $('#view'), world = $('#world'), svg = document.querySelector('#arrows') as SVGSVGElement;
 
+type Op = Record<string, unknown>;
+type Rect = { x: number; y: number; w: number; h: number };
+
 let board: Board | null = null;
 let view = { x: 40, y: 40, z: 0.5 };
-let tool: 'select' | 'arrow' | 'comment' = 'select';
+let tool: 'select' | 'comment' = 'select';
 let sel: string | null = null;
 let busy: string | null = null; // id being dragged: live updates skip it
 let mouse: [number, number] = [0, 0];
-const undo: string[] = [];
+let space = false;              // space held = hand tool
 const els = new Map<string, HTMLElement>();
+// Only touch the DOM when the markup changed: replacing an element mid-click swallows the click.
+const setHTML = (el: HTMLElement, html: string) => { if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
 const secEls = new Map<string, HTMLElement>();
 let byId = new Map<string, Item>();
 
@@ -22,10 +27,10 @@ async function load() {
   byId = new Map(board!.items.map(i => [i.id, i]));
   render();
 }
-async function op(o: Record<string, unknown>) {
+async function op(o: Op): Promise<string> {
   const r = await fetch('/api/op', { method: 'POST', body: JSON.stringify({ by: 'human', ...o }) });
   const t = await r.text();
-  if (!r.ok) hint(t, true);
+  if (!r.ok) { hint(t, true); throw new Error(t); }
   return t;
 }
 async function upload(blob: Blob, ext: string, prefix = 'up'): Promise<string> {
@@ -33,11 +38,22 @@ async function upload(blob: Blob, ext: string, prefix = 'up'): Promise<string> {
   return (await r.json()).asset;
 }
 const cur = (it: Item) => it.versions[it.versions.length - 1];
-const isDraft = (it: Item) => it.createdBy === 'human' && it.sent === undefined;
 const active = () => board!.items.filter(i => i.state === 'active');
 const solid = () => active().filter(i => i.kind !== 'arrow');
 
-function sectionRect(s: Section) {
+// ---------- undo / redo (the human's own actions) ----------
+const undos: { undo: Op; redo: Op }[] = [], redos: { undo: Op; redo: Op }[] = [];
+async function act(redo: Op, undo: Op) { await op(redo); undos.push({ undo, redo }); redos.length = 0; }
+// For creations: the undo target is only known from the result line ("key v1 ...").
+async function create(o: Op) {
+  const key = (await op(o)).split(' ')[0];
+  undos.push({ undo: { op: 'archive', id: key }, redo: { op: 'restore', id: key } }); redos.length = 0;
+  return key;
+}
+async function undoLast() { const u = undos.pop(); if (!u) return hint('Nothing to undo'); await op(u.undo); redos.push(u); hint('Undone · ⇧⌘Z to redo'); }
+async function redoLast() { const u = redos.pop(); if (!u) return hint('Nothing to redo'); await op(u.redo); undos.push(u); hint('Redone'); }
+
+function sectionRect(s: Section): Rect {
   const m = solid().filter(i => i.section === s.id);
   if (!m.length) return { x: s.x - PAD, y: s.y - PAD, w: 400, h: 160 };
   const x0 = Math.min(...m.map(i => i.x)), y0 = Math.min(...m.map(i => i.y));
@@ -55,6 +71,7 @@ function applyView() {
   cull();
   drawArrows();
   saveView();
+  markSeenSoon();
 }
 let saveT = 0;
 function saveView() { clearTimeout(saveT); saveT = window.setTimeout(() => board && localStorage.setItem('view-' + board.id, JSON.stringify(view)), 300); }
@@ -63,35 +80,51 @@ function toWorld(cx: number, cy: number): [number, number] {
   const r = view$.getBoundingClientRect();
   return [(cx - r.left - view.x) / view.z, (cy - r.top - view.y) / view.z];
 }
-function fit(r: { x: number; y: number; w: number; h: number } | null) {
+function fit(r: Rect | null) {
   if (!r) return;
   const vw = view$.clientWidth, vh = view$.clientHeight;
   const z = Math.min(vw / (r.w + 120), vh / (r.h + 160), 1.5);
   view = { z, x: (vw - r.w * z) / 2 - r.x * z, y: (vh - r.h * z) / 2 - r.y * z + 20 };
   applyView();
 }
-function bbox(items: { x: number; y: number; w: number; h: number }[]) {
+function bbox(items: Rect[]): Rect | null {
   if (!items.length) return null;
   const x0 = Math.min(...items.map(i => i.x)), y0 = Math.min(...items.map(i => i.y));
   return { x: x0, y: y0, w: Math.max(...items.map(i => i.x + i.w)) - x0, h: Math.max(...items.map(i => i.y + i.h)) - y0 };
 }
 const fitAll = () => board && fit(bbox(solid()));
 
+function viewport() {
+  const r = view$.getBoundingClientRect();
+  const [x0, y0] = toWorld(r.left, r.top);
+  return { x0, y0, x1: x0 + view$.clientWidth / view.z, y1: y0 + view$.clientHeight / view.z };
+}
 // Hide off-screen items; swap thumbnails for full images when zoomed in.
 function cull() {
   if (!board) return;
-  const [x0, y0] = toWorld(view$.getBoundingClientRect().left, view$.getBoundingClientRect().top);
-  const x1 = x0 + view$.clientWidth / view.z, y1 = y0 + view$.clientHeight / view.z, m = 200 / view.z;
+  const v = viewport(), m = 200 / view.z;
   for (const it of solid()) {
     const el = els.get(it.id); if (!el) continue;
-    const vis = it.x + it.w > x0 - m && it.x < x1 + m && it.y + it.h > y0 - m && it.y < y1 + m;
+    const vis = it.x + it.w > v.x0 - m && it.x < v.x1 + m && it.y + it.h > v.y0 - m && it.y < v.y1 + m;
     el.style.display = vis ? '' : 'none';
     if (vis && it.kind === 'image') {
-      const v = cur(it), img = el.querySelector('img')!;
-      const want = '/a/' + (v.thumb && it.w * view.z * devicePixelRatio < THUMB_W * 1.1 ? v.thumb : v.asset);
+      const ver = cur(it), img = el.querySelector('img')!;
+      const want = '/a/' + (ver.thumb && it.w * view.z * devicePixelRatio < THUMB_W * 1.1 ? ver.thumb : ver.asset);
       if (img.getAttribute('src') !== want) img.setAttribute('src', want);
     }
   }
+}
+// Agent items that stay on screen at a readable size for 1.5s count as seen (clears the blue dot).
+let seenT = 0;
+function markSeenSoon() {
+  clearTimeout(seenT);
+  seenT = window.setTimeout(() => {
+    if (!board || document.hidden) return;
+    const v = viewport();
+    const ids = solid().filter(i => i.createdBy === 'agent' && !i.seenByHuman && i.w * view.z > 140 &&
+      i.x >= v.x0 && i.x + i.w <= v.x1 + i.w / 2 && i.y >= v.y0 - i.h / 2 && i.y <= v.y1).map(i => i.id);
+    if (ids.length) op({ op: 'seen', ids }).catch(() => {});
+  }, 1500);
 }
 
 // ---------- render ----------
@@ -116,9 +149,9 @@ function md(src: string): string {
 
 function content(it: Item): string {
   const v = cur(it);
-  const label = (txt: string) => `<div class="label"><b>${esc(txt)}</b>${cur(it).v > 1 ? ` v${cur(it).v}` : ''}${it.createdBy === 'agent' && it.title ? ` · ${esc(it.key)}` : ''}</div>`;
+  const label = (txt: string) => `<div class="label"><b>${esc(txt)}</b>${v.v > 1 ? ` v${v.v}` : ''}${it.createdBy === 'agent' && it.title ? ` · ${esc(it.key)}` : ''}</div>`;
   const dot = it.createdBy === 'agent' && !it.seenByHuman ? '<div class="dot"></div>' : '';
-  const react = it.reaction ? `<div class="react ${it.reaction.kind}">${it.reaction.kind === 'approve' ? '✓ approved' : '✗ rejected'}${it.reaction.sent === undefined ? ' (draft)' : ''}</div>` : '';
+  const react = it.reaction ? `<div class="react ${it.reaction.kind}">${it.reaction.kind === 'approve' ? '✓ approved' : '✗ rejected'}${it.reaction.reason ? `: ${esc(it.reaction.reason)}` : ''}</div>` : '';
   if (it.kind === 'image') return `<img draggable="false">${label(it.title ?? it.key)}${dot}${react}`;
   if (it.kind === 'link') {
     let host = v.url!; try { host = new URL(v.url!).host; } catch { /* keep */ }
@@ -126,11 +159,14 @@ function content(it: Item): string {
   }
   if (it.comment) {
     const c = it.comment;
-    const thread = c.thread.map(t => `<div class="reply"><b>${t.by}</b> ${md(t.text)}</div>`).join('');
-    const acts = it.createdBy === 'human' && c.status !== 'resolved'
-      ? `<div class="acts">${c.thread.some(t => t.by === 'agent') || c.status === 'addressed' ? '<button data-act="reply">Reply</button>' : ''}${c.status === 'addressed' ? '<button data-act="resolve">Resolve</button>' : ''}</div>` : '';
-    return `<div class="card comment" style="height:100%"><div class="head"><span class="chip i-${c.intent}" data-act="intent">${c.intent}</span>` +
-      `<span class="s-${c.status}">${isDraft(it) ? 'draft' : c.status}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span></div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
+    const thread = c.thread.map(t => `<div class="reply"><b>${t.by === 'agent' ? 'agent' : 'you'}</b> ${md(t.text)}</div>`).join('');
+    const mine = it.createdBy === 'human';
+    const acts = c.status !== 'resolved'
+      ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}</div>`
+      : `<div class="acts"><button data-act="reopen">Reopen</button></div>`;
+    const state = c.status === 'open' ? (it.delivered || !mine ? 'open' : 'waiting for agent') : c.status;
+    return `<div class="card comment${c.status === 'resolved' ? ' done' : ''}" style="height:100%"><div class="head"><span class="chip i-${c.intent}"${mine ? ' data-act="intent" title="Click to change"' : ''}>${c.intent}</span>` +
+      `<span class="s-${c.status}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span></div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
   }
   return `<div class="card" style="height:100%">${md(v.text ?? '')}</div>${it.title ? label(it.title) : ''}${dot}${react}`;
 }
@@ -143,7 +179,7 @@ function render() {
     let el = els.get(it.id);
     if (!el) { el = document.createElement('div'); el.dataset.id = it.id; world.appendChild(el); els.set(it.id, el); }
     if (el.dataset.rev !== String(it.rev) || el.dataset.sel !== String(sel === it.id)) {
-      el.className = `item ${it.kind}${sel === it.id ? ' sel' : ''}${isDraft(it) ? ' draft' : ''}`;
+      el.className = `item ${it.kind}${sel === it.id ? ' sel' : ''}`;
       el.innerHTML = content(it) + (sel === it.id ? '<div class="handle"></div>' : '');
       el.dataset.rev = String(it.rev); el.dataset.sel = String(sel === it.id);
     }
@@ -157,10 +193,11 @@ function render() {
     let el = secEls.get(s.id);
     if (!el) {
       el = document.createElement('div'); el.className = 'section'; el.dataset.sec = s.id;
-      el.innerHTML = '<div class="sectitle"></div>';
+      el.innerHTML = '<div class="sectitle" title="Drag to move the section · double-click to rename"></div>';
       world.prepend(el); secEls.set(s.id, el);
     }
-    (el.firstChild as HTMLElement).textContent = s.title;
+    const t = el.firstChild as HTMLElement;
+    if (!t.isContentEditable) t.textContent = s.title;
     place(el, sectionRect(s));
   }
   for (const [id, el] of secEls) if (!liveS.has(id)) { el.remove(); secEls.delete(id); }
@@ -175,17 +212,17 @@ function fitCards() {
     const card = els.get(it.id)?.querySelector('.card') as HTMLElement | null;
     if (!card || card.offsetParent === null) continue;
     const need = card.scrollHeight + 2;
-    if (need > it.h + 2) { it.h = need; op({ op: 'move', id: it.id, x: it.x, y: it.y, h: need, by: 'agent' }); }
+    if (need > it.h + 2) { it.h = need; op({ op: 'move', id: it.id, x: it.x, y: it.y, h: need, by: 'agent' }).catch(() => {}); }
   }
 }
-function place(el: HTMLElement, r: { x: number; y: number; w: number; h: number }) {
+function place(el: HTMLElement, r: Rect) {
   el.style.left = r.x + 'px'; el.style.top = r.y + 'px'; el.style.width = r.w + 'px'; el.style.height = r.h + 'px';
 }
 function refreshSections() {
   for (const s of board!.sections) { const el = secEls.get(s.id); if (el) place(el, sectionRect(s)); }
 }
 
-function edge(r: Item, p: [number, number]): [number, number] {
+function edge(r: Rect, p: [number, number]): [number, number] {
   const cx = r.x + r.w / 2, cy = r.y + r.h / 2, dx = p[0] - cx, dy = p[1] - cy;
   if (!dx && !dy) return [cx, cy];
   const s = Math.min(1, Math.min(Math.abs((r.w / 2) / dx || Infinity), Math.abs((r.h / 2) / dy || Infinity)));
@@ -198,7 +235,6 @@ function arrowPath(a: [number, number], b: [number, number], cls = '') {
   const head = `${b[0]},${b[1]} ${bx - uy * hs * 0.5},${by + ux * hs * 0.5} ${bx + uy * hs * 0.5},${by - ux * hs * 0.5}`;
   return `<g class="${cls}"><path class="ar" stroke-width="${2 * k}" d="M${a[0]},${a[1]}L${bx},${by}"/><polygon class="head" points="${head}"/></g>`;
 }
-let tempArrow = '';
 function drawArrows() {
   if (!board) return;
   const k = 1 / view.z;
@@ -209,52 +245,44 @@ function drawArrows() {
     if (!f || !t || f.state !== 'active' || t.state !== 'active') continue;
     const end: [number, number] = a.toPoint ? [t.x + a.toPoint[0] * t.w, t.y + a.toPoint[1] * t.h] : edge(t, [f.x + f.w / 2, f.y + f.h / 2]);
     const start = edge(f, end);
-    html += `<path class="hit" data-id="${a.id}" stroke-width="${14 * k}" d="M${start[0]},${start[1]}L${end[0]},${end[1]}"/>`;
-    html += arrowPath(start, end, (sel === a.id ? 'sel' : '') + (isDraft(a) ? ' draft' : ''));
+    const pin = f.comment && a.toPoint;
+    if (!pin) html += `<path class="hit" data-id="${a.id}" stroke-width="${14 * k}" d="M${start[0]},${start[1]}L${end[0]},${end[1]}"/>`;
+    html += pin ? `<g class="${sel === a.id ? 'sel' : ''}"><path class="ar" stroke-width="${2 * k}" d="M${start[0]},${start[1]}L${end[0]},${end[1]}"/></g>` : arrowPath(start, end, sel === a.id ? 'sel' : '');
     if (a.label) html += `<text x="${(start[0] + end[0]) / 2}" y="${(start[1] + end[1]) / 2}" font-size="${12 * k}">${esc(a.label)}</text>`;
-    if (a.toPoint && t.kind === 'image') html += `<circle cx="${end[0]}" cy="${end[1]}" r="${5 * k}" class="head"/>`;
+    // Comment pins are draggable.
+    if (pin) html += `<circle class="pinh" data-c="${f.id}" data-a="${a.id}" cx="${end[0]}" cy="${end[1]}" r="${7 * k}" stroke-width="${2 * k}"><title>Drag to move the pin</title></circle>`;
   }
-  svg.innerHTML = html + tempArrow;
+  svg.innerHTML = html;
 }
 
 function outline() {
   const b = board!, o = $('#outline');
+  if (o.querySelector('[contenteditable]')) return;
   const comments = active().filter(i => i.comment && i.comment.status !== 'resolved');
   const row = (title: string, ids: Set<string>, key: string) => {
     const n = solid().filter(i => ids.has(i.id) && !i.comment).length;
     const c = comments.filter(i => ids.has(i.comment!.target!)).length;
     const u = solid().filter(i => ids.has(i.id) && i.createdBy === 'agent' && !i.seenByHuman).length;
-    return `<div data-key="${key}">${esc(title)}${c ? `<span class="c">${c}</span>` : ''}${u ? `<span class="u">${u}</span>` : ''}<span class="n">${n}</span></div>`;
+    return `<div data-key="${key}"><span class="name">${esc(title)}</span>${c ? `<span class="c" title="open comments">${c}</span>` : ''}${u ? `<span class="u" title="new from the agent">${u}</span>` : ''}<span class="n">${n}</span></div>`;
   };
   let html = `<div data-key="*"><b>All</b><span class="n">${solid().filter(i => !i.comment).length}</span></div>`;
   for (const s of b.sections) html += row(s.title, new Set(solid().filter(i => i.section === s.id).map(i => i.id)), s.id);
   const loose = solid().filter(i => !b.sections.some(s => s.id === i.section));
   if (loose.length) html += row('Inbox / loose', new Set(loose.map(i => i.id)), '~');
-  o.innerHTML = html;
-}
-function drafts() {
-  let n = 0;
-  for (const it of active()) {
-    if (isDraft(it) && it.kind !== 'arrow') n++;
-    if (it.reaction && it.reaction.sent === undefined) n++;
-    n += (it.comment?.thread ?? []).filter(t => t.by === 'human' && t.sent === undefined).length;
-  }
-  return n;
+  setHTML(o, html);
 }
 function status() {
-  const n = drafts();
-  const send = $<HTMLButtonElement>('#send');
-  send.textContent = n ? `Send feedback (${n})` : 'Send feedback';
-  send.disabled = !n;
-  $('#status').textContent = `${board!.name} · rev ${board!.revision} · round ${board!.round}`;
+  const waiting = active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow').length;
+  $('#status').textContent = `${board!.name} · round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`;
 }
 function selbar() {
   const it = sel ? byId.get(sel) : undefined, s = $('#selbar');
-  if (!it) { s.innerHTML = ''; return; }
+  if (!it) { setHTML(s, ''); return; }
   const agentItem = it.createdBy === 'agent' && it.kind !== 'arrow' && !it.comment;
-  s.innerHTML = `<code title="Click to copy">${esc(it.key)}</code>` +
-    (agentItem ? '<button data-act="approve">Approve</button><button data-act="reject">Reject</button>' : '') +
-    '<button data-act="archive" title="Delete / Backspace">Archive</button>';
+  const r = it.reaction?.kind;
+  setHTML(s, `<code title="Click to copy, then mention it in chat">${esc(it.key)}</code>` +
+    (agentItem ? `<button data-act="approve" class="${r === 'approve' ? 'on' : ''}">Approve</button><button data-act="reject" class="${r === 'reject' ? 'on' : ''}">Reject</button>` : '') +
+    '<button data-act="archive" title="Delete / Backspace">Archive</button>');
 }
 
 // ---------- hints ----------
@@ -266,40 +294,60 @@ function hint(text: string, err = false) {
 function setTool(t: typeof tool) {
   tool = t;
   document.querySelectorAll<HTMLElement>('#bar [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  view$.className = 'tool-' + t;
-  if (t === 'arrow') hint('Arrow: drag from one item to another (drop on a spot to point at it)');
+  view$.classList.toggle('tool-comment', t === 'comment');
   if (t === 'comment') hint('Comment: click a spot or drag a region on an item');
 }
 function select(id: string | null) { sel = id; render(); }
 
 // ---------- editor ----------
 let editing = false;
-function editor(x: number, y: number, w: number, init: string, mode: 'text' | 'comment', onSave: (text: string, intent: Intent) => void, onCancel?: () => void) {
+interface EdOpts { x: number; y: number; w: number; init?: string; mode: 'text' | 'comment' | 'line'; placeholder?: string; allowEmpty?: boolean;
+  onSave: (text: string, intent: Intent) => void; onCancel?: () => void }
+function editor(o: EdOpts) {
   editing = true;
   let intent: Intent = 'change';
   const box = document.createElement('div');
   box.className = 'editor';
-  Object.assign(box.style, { left: x + 'px', top: y + 'px', width: Math.max(w, 240) + 'px' });
+  Object.assign(box.style, { left: o.x + 'px', top: o.y + 'px', width: Math.max(o.w, 240) + 'px' });
   const intents: Intent[] = ['change', 'question', 'bug', 'keep'];
-  box.innerHTML = (mode === 'comment' ? `<div class="intents">${intents.map(i => `<button class="i-${i}${i === intent ? ' on' : ''}" data-i="${i}">${i}</button>`).join('')}</div>` : '') +
-    `<textarea></textarea><div class="tip">${mode === 'comment' ? 'Enter to save · Shift+Enter new line' : '⌘Enter or click away to save'} · Esc cancel</div>`;
+  const tip = o.mode === 'text' ? '⌘Enter or click away to save' : 'Enter to save · Shift+Enter new line';
+  box.innerHTML = (o.mode === 'comment' ? `<div class="intents">${intents.map(i => `<button class="i-${i}${i === intent ? ' on' : ''}" data-i="${i}">${i}</button>`).join('')}</div>` : '') +
+    `<textarea placeholder="${esc(o.placeholder ?? '')}"></textarea><div class="tip">${tip} · Esc cancel</div>`;
   world.appendChild(box);
   const ta = box.querySelector('textarea')!;
-  ta.value = init; ta.focus();
+  if (o.mode === 'line') ta.style.minHeight = '38px';
+  ta.value = o.init ?? ''; ta.focus({ preventScroll: true });
   box.addEventListener('pointerdown', e => e.stopPropagation());
+  box.addEventListener('dblclick', e => e.stopPropagation());
   box.querySelectorAll<HTMLElement>('[data-i]').forEach(b => {
     b.addEventListener('mousedown', e => e.preventDefault());
     b.onclick = () => { intent = b.dataset.i as Intent; box.querySelectorAll('[data-i]').forEach(x => x.classList.toggle('on', x === b)); };
   });
   let closed = false;
   const close = () => { if (closed) return; closed = true; editing = false; box.remove(); };
-  const save = () => { const t = ta.value.trim(); close(); if (t) onSave(t, intent); else onCancel?.(); };
+  const save = () => { const t = ta.value.trim(); close(); if (t || o.allowEmpty) o.onSave(t, intent); else o.onCancel?.(); };
   ta.onkeydown = e => {
     e.stopPropagation();
-    if (e.key === 'Escape') { close(); onCancel?.(); }
-    else if (e.key === 'Enter' && (mode === 'comment' ? !e.shiftKey : e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+    if (e.key === 'Escape') { close(); o.onCancel?.(); }
+    else if (e.key === 'Enter' && (o.mode === 'text' ? e.metaKey || e.ctrlKey : !e.shiftKey)) { e.preventDefault(); save(); }
   };
-  ta.onblur = () => setTimeout(() => { if (!closed && document.activeElement !== ta) save(); }, 100);
+  ta.onblur = () => setTimeout(() => { if (!closed && document.activeElement !== ta) (o.mode === 'line' ? (close(), o.onCancel?.()) : save()); }, 100);
+}
+
+// Inline rename (section titles on the board and in the outline).
+function renameInline(el: HTMLElement, s: Section) {
+  el.contentEditable = 'true'; el.focus({ preventScroll: true });
+  document.getSelection()?.selectAllChildren(el);
+  editing = true;
+  const done = (save: boolean) => {
+    el.contentEditable = 'false'; editing = false;
+    const t = (el.textContent ?? '').trim();
+    if (save && t && t !== s.title) act({ op: 'renameSection', id: s.id, title: t }, { op: 'renameSection', id: s.id, title: s.title });
+    else el.textContent = s.title;
+    render();
+  };
+  el.onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); el.onblur = null; done(true); } if (e.key === 'Escape') { el.onblur = null; done(false); } };
+  el.onblur = () => done(true);
 }
 
 // ---------- crops ----------
@@ -308,16 +356,12 @@ async function makeCrop(it: Item, point: [number, number], region?: [number, num
   if (it.kind !== 'image' || !v.asset) return;
   const img = new Image(); img.src = '/a/' + v.asset; await img.decode();
   const W = img.naturalWidth, H = img.naturalHeight;
-  let cx: number, cy: number, cw: number, ch: number;
+  let cx = 0, cy = 0, cw = W, ch = H; // a pin alone doesn't say what it points at: whole image, pin drawn on it
   if (region) {
     const mx = region[2] * W * 0.25 + 40, my = region[3] * H * 0.25 + 40;
-    cx = region[0] * W - mx; cy = region[1] * H - my; cw = region[2] * W + 2 * mx; ch = region[3] * H + 2 * my;
-  } else {
-    // A pin alone doesn't say what it points at, so send the whole image with the pin drawn on it.
-    cx = 0; cy = 0; cw = W; ch = H;
+    cx = region[0] * W - mx; cy = region[1] * H - my; cw = Math.min(W, region[2] * W + 2 * mx); ch = Math.min(H, region[3] * H + 2 * my);
+    cx = Math.max(0, Math.min(cx, W - cw)); cy = Math.max(0, Math.min(cy, H - ch));
   }
-  cw = Math.min(cw, W); ch = Math.min(ch, H);
-  cx = Math.max(0, Math.min(cx, W - cw)); cy = Math.max(0, Math.min(cy, H - ch));
   const s = Math.min(1, 1000 / Math.max(cw, ch));
   const c = document.createElement('canvas'); c.width = Math.round(cw * s); c.height = Math.round(ch * s);
   const g = c.getContext('2d')!;
@@ -342,36 +386,53 @@ const itemAt = (e: { target: EventTarget | null }) => {
 const local = (it: Item, p: [number, number]): [number, number] =>
   [Math.min(1, Math.max(0, (p[0] - it.x) / it.w)), Math.min(1, Math.max(0, (p[1] - it.y) / it.h))];
 
+function pan(e: PointerEvent) {
+  const v0 = { ...view }, c0 = [e.clientX, e.clientY];
+  view$.classList.add('panning');
+  const onMove = (ev: PointerEvent) => { view.x = v0.x + ev.clientX - c0[0]; view.y = v0.y + ev.clientY - c0[1]; applyView(); };
+  const onUp = () => { view$.classList.remove('panning'); removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); };
+  addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
+}
+
 view$.addEventListener('pointerdown', e => {
   if (!board || e.button > 1) return;
+  if (space || e.button === 1) { e.preventDefault(); return pan(e); }
   const t = e.target as HTMLElement;
-  if (t.closest('.editor, a, button, [data-act]')) return;
+  if (t.closest('.editor, a, button, [data-act], [contenteditable="true"]')) return;
   const start = toWorld(e.clientX, e.clientY);
   const it = itemAt(e);
   const hitArrow = t.classList.contains('hit') ? t.dataset.id! : null;
+  const pinOf = t.classList.contains('pinh') ? byId.get(t.dataset.c!) : undefined;
   const sec = t.classList.contains('sectitle') ? board.sections.find(s => s.id === (t.parentElement as HTMLElement).dataset.sec) : undefined;
-  let move: ((p: [number, number]) => void) | null = null, up: ((p: [number, number], ev: PointerEvent) => void) | null = null;
+  let move: ((p: [number, number]) => void) | null = null, up: ((p: [number, number]) => void) | null = null;
 
-  if (e.button === 1 || (tool === 'select' && !it && !hitArrow && !sec)) {
-    if (tool === 'select' && sel) select(null);
-    const v0 = { ...view }, c0 = [e.clientX, e.clientY];
-    view$.classList.add('panning');
-    const onMove = (ev: PointerEvent) => { view.x = v0.x + ev.clientX - c0[0]; view.y = v0.y + ev.clientY - c0[1]; applyView(); };
-    const onUp = () => { view$.classList.remove('panning'); removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); };
-    addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
-    return;
-  }
-
-  if (tool === 'select' && hitArrow) { select(hitArrow); return; }
-
-  if (tool === 'select' && sec) {
+  if (pinOf?.comment) {
+    // Drag a comment's pin to a new spot on its target.
+    const c = pinOf.comment, target = byId.get(c.target!)!, arrow = byId.get(t.dataset.a!)!;
+    const old = { point: c.point!, region: c.region, crop: c.crop };
+    let point = c.point!, region = c.region;
+    move = p => {
+      point = local(target, p);
+      if (old.region) { const d = [point[0] - old.point[0], point[1] - old.point[1]]; region = [old.region[0] + d[0], old.region[1] + d[1], old.region[2], old.region[3]]; }
+      arrow.toPoint = point; drawArrows();
+    };
+    up = async () => {
+      if (point === old.point) return;
+      const crop = await makeCrop(target, point, region).catch(() => undefined);
+      act({ op: 'repin', id: pinOf.id, point, region, crop }, { op: 'repin', id: pinOf.id, point: old.point, region: old.region, crop: old.crop });
+    };
+  } else if (tool === 'select' && !it && !hitArrow && !sec) {
+    if (sel) select(null);
+    return pan(e);
+  } else if (tool === 'select' && hitArrow) { select(hitArrow); return; }
+  else if (tool === 'select' && sec) {
     const members = solid().filter(i => i.section === sec.id).map(i => ({ i, x: i.x, y: i.y }));
     let d: [number, number] = [0, 0];
     move = p => { d = [p[0] - start[0], p[1] - start[1]]; for (const m of members) { m.i.x = m.x + d[0]; m.i.y = m.y + d[1]; place(els.get(m.i.id)!, m.i); } refreshSections(); drawArrows(); };
-    up = () => { if (d[0] || d[1]) op({ op: 'moveSection', id: sec.id, dx: d[0], dy: d[1] }); };
+    up = () => { if (d[0] || d[1]) act({ op: 'moveSection', id: sec.id, dx: d[0], dy: d[1] }, { op: 'moveSection', id: sec.id, dx: -d[0], dy: -d[1] }); };
   } else if (tool === 'select' && it) {
     if (sel !== it.id) select(it.id);
-    const o = { x: it.x, y: it.y, w: it.w, h: it.h }, el = els.get(it.id)!;
+    const o = { x: it.x, y: it.y, w: it.w, h: it.h, section: it.section ?? null }, el = els.get(it.id)!;
     const resize = t.classList.contains('handle');
     const ar = it.kind === 'image' ? it.h / it.w : 0;
     busy = it.id;
@@ -383,15 +444,10 @@ view$.addEventListener('pointerdown', e => {
       else { it.x = o.x + dx; it.y = o.y + dy; }
       place(el, it); refreshSections(); drawArrows();
     };
-    up = () => { busy = null; if (moved) op({ op: 'move', id: it.id, x: it.x, y: it.y, w: resize ? it.w : undefined, h: resize ? it.h : undefined }); };
-  } else if (tool === 'arrow' && it) {
-    const from = it;
-    move = p => { tempArrow = arrowPath(edge(from, p), p, 'draft'); drawArrows(); };
-    up = (p, ev) => {
-      tempArrow = ''; drawArrows();
-      const to = itemAt({ target: document.elementFromPoint(ev.clientX, ev.clientY) });
-      if (!to || to.id === from.id) return;
-      op({ op: 'arrow', from: from.id, to: to.id, toPoint: to.kind === 'image' ? local(to, p) : undefined });
+    up = () => {
+      busy = null;
+      if (moved) act({ op: 'move', id: it.id, x: it.x, y: it.y, w: resize ? it.w : undefined, h: resize ? it.h : undefined },
+        { op: 'move', id: it.id, x: o.x, y: o.y, w: o.w, h: o.h, section: o.section });
     };
   } else if (tool === 'comment' && it && !it.comment) {
     const target = it;
@@ -410,16 +466,17 @@ view$.addEventListener('pointerdown', e => {
     };
     up = () => {
       const point: [number, number] = region ? [region[0] + region[2] / 2, region[1] + region[3] / 2] : p0;
-      editor(target.x + target.w + 40, target.y + point[1] * target.h - 20, 240, '', 'comment', async (text, intent) => {
-        const crop = await makeCrop(target, point, region).catch(() => undefined);
-        mark.remove();
-        await op({ op: 'comment', target: target.id, text, intent, point, region, crop });
-      }, () => mark.remove());
+      editor({ x: target.x + target.w + 40, y: target.y + point[1] * target.h - 20, w: 240, mode: 'comment', placeholder: 'What should change here?',
+        onSave: async (text, intent) => {
+          const crop = await makeCrop(target, point, region).catch(() => undefined);
+          mark.remove();
+          await create({ op: 'comment', target: target.id, text, intent, point, region, crop });
+        }, onCancel: () => mark.remove() });
     };
   }
   if (!move) return;
   const onMove = (ev: PointerEvent) => move!(toWorld(ev.clientX, ev.clientY));
-  const onUp = (ev: PointerEvent) => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); up?.(toWorld(ev.clientX, ev.clientY), ev); };
+  const onUp = (ev: PointerEvent) => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); up?.(toWorld(ev.clientX, ev.clientY)); };
   addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
 });
 
@@ -437,17 +494,26 @@ view$.addEventListener('wheel', e => {
 }, { passive: false });
 
 view$.addEventListener('dblclick', e => {
-  if (!board || tool !== 'select' || (e.target as HTMLElement).closest('.editor')) return;
+  if (!board || tool !== 'select') return;
+  const t = e.target as HTMLElement;
+  if (t.closest('.editor')) return;
+  if (t.classList.contains('sectitle')) {
+    const s = board.sections.find(x => x.id === (t.parentElement as HTMLElement).dataset.sec);
+    if (s) renameInline(t, s);
+    return;
+  }
   const it = itemAt(e);
   if (it && it.kind === 'text' && it.createdBy === 'human') {
     els.get(it.id)!.style.visibility = 'hidden';
     const restore = () => { const el = els.get(it.id); if (el) el.style.visibility = ''; };
-    editor(it.x, it.y, it.w, cur(it).text ?? '', it.comment ? 'comment' : 'text', (text, intent) => { restore(); op({ op: 'edit', id: it.id, text, intent: it.comment ? intent : undefined }); }, restore);
+    const old = { text: cur(it).text ?? '', intent: it.comment?.intent };
+    editor({ x: it.x, y: it.y, w: it.w, init: old.text, mode: it.comment ? 'comment' : 'text', onCancel: restore,
+      onSave: (text, intent) => { restore(); act({ op: 'edit', id: it.id, text, intent: it.comment ? intent : undefined }, { op: 'edit', id: it.id, text: old.text, intent: old.intent }); } });
     return;
   }
   if (it) return;
   const [x, y] = toWorld(e.clientX, e.clientY);
-  editor(x, y, 280, '', 'text', text => op({ op: 'add', kind: 'text', text, at: [x, y] }));
+  editor({ x, y, w: 280, mode: 'text', placeholder: 'Note (markdown)', onSave: text => create({ op: 'add', kind: 'text', text, at: [x, y] }) });
 });
 
 // Buttons inside cards and the selection bar.
@@ -456,29 +522,35 @@ document.addEventListener('click', async e => {
   if (!b || !board) return;
   const it = b.closest('.item') ? byId.get((b.closest('.item') as HTMLElement).dataset.id!) : sel ? byId.get(sel) : undefined;
   if (!it) return;
-  const act = b.dataset.act;
-  if (act === 'intent' && it.comment && isDraft(it)) {
-    const order: Intent[] = ['change', 'question', 'bug', 'keep'];
-    op({ op: 'edit', id: it.id, intent: order[(order.indexOf(it.comment.intent) + 1) % 4] });
-  } else if (act === 'reply') { const t = prompt('Reply'); if (t) op({ op: 'reply', id: it.id, text: t }); }
-  else if (act === 'resolve') op({ op: 'resolve', id: it.id });
-  else if (act === 'approve' || act === 'reject') {
-    const reason = prompt(`${act === 'approve' ? 'Approve' : 'Reject'} ${it.key}: reason (optional)`);
-    if (reason !== null) op({ op: 'react', id: it.id, kind: act, reason: reason || undefined });
-  } else if (act === 'archive') archive(it);
+  const a = b.dataset.act;
+  if (a === 'intent' && it.comment) {
+    const order: Intent[] = ['change', 'question', 'bug', 'keep'], old = it.comment.intent;
+    act({ op: 'edit', id: it.id, intent: order[(order.indexOf(old) + 1) % 4] }, { op: 'edit', id: it.id, intent: old });
+  } else if (a === 'reply') {
+    editor({ x: it.x, y: it.y + it.h + 8, w: it.w, mode: 'line', placeholder: 'Reply…',
+      onSave: text => act({ op: 'reply', id: it.id, text }, { op: 'unreply', id: it.id }) });
+  } else if (a === 'resolve' || a === 'reopen') {
+    act({ op: 'status', id: it.id, status: a === 'resolve' ? 'resolved' : 'open' }, { op: 'status', id: it.id, status: it.comment!.status });
+  } else if (a === 'approve' || a === 'reject') {
+    const prev = { op: 'react', id: it.id, kind: it.reaction?.kind, reason: it.reaction?.reason };
+    if (it.reaction?.kind === a) return act({ op: 'react', id: it.id }, prev); // clicking again withdraws
+    editor({ x: it.x, y: it.y + it.h + 8, w: Math.max(it.w, 260), mode: 'line', allowEmpty: true,
+      placeholder: `${a === 'approve' ? 'Approve' : 'Reject'}: reason (optional), Enter`,
+      onSave: reason => act({ op: 'react', id: it.id, kind: a, reason: reason || undefined }, prev) });
+  } else if (a === 'archive') archive(it);
 });
 $('#selbar').addEventListener('click', e => {
   if ((e.target as HTMLElement).tagName === 'CODE') { navigator.clipboard.writeText((e.target as HTMLElement).textContent!); hint('Key copied'); }
 });
 
-function archive(it: Item) { undo.push(it.id); sel = null; op({ op: 'archive', id: it.id }); hint(`Archived ${it.key} · ⌘Z to undo`); }
+function archive(it: Item) { sel = null; act({ op: 'archive', id: it.id }, { op: 'restore', id: it.id }); hint(`Archived ${it.key} · ⌘Z to undo`); }
 
 // ---------- paste / drop ----------
 async function addFiles(files: File[], at: [number, number]) {
   for (const f of files) {
     if (!f.type.startsWith('image/')) continue;
     const asset = await upload(f, (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg'));
-    await op({ op: 'add', kind: 'image', asset, at });
+    await create({ op: 'add', kind: 'image', asset, at });
     at = [at[0] + 40, at[1] + 40];
   }
 }
@@ -489,28 +561,29 @@ document.addEventListener('paste', e => {
   const text = e.clipboardData?.getData('text/plain')?.trim();
   if (!text) return;
   e.preventDefault();
-  if (/^https?:\/\/\S+$/.test(text)) op({ op: 'add', kind: 'link', url: text, at: mouse });
-  else op({ op: 'add', kind: 'text', text, at: mouse });
+  create(/^https?:\/\/\S+$/.test(text) ? { op: 'add', kind: 'link', url: text, at: mouse } : { op: 'add', kind: 'text', text, at: mouse });
 });
 view$.addEventListener('dragover', e => e.preventDefault());
 view$.addEventListener('drop', e => { e.preventDefault(); addFiles([...(e.dataTransfer?.files ?? [])], toWorld(e.clientX, e.clientY)); });
 
 // ---------- keys / toolbar ----------
+const typing = (e: KeyboardEvent) => editing || ['TEXTAREA', 'INPUT'].includes((e.target as HTMLElement).tagName) || (e.target as HTMLElement).isContentEditable;
 document.addEventListener('keydown', e => {
-  if (editing || (e.target as HTMLElement).tagName === 'TEXTAREA' || (e.target as HTMLElement).tagName === 'INPUT') return;
+  if (typing(e)) return;
   const k = e.key.toLowerCase();
-  if ((e.metaKey || e.ctrlKey) && k === 'z') { const id = undo.pop(); if (id) op({ op: 'restore', id }); e.preventDefault(); return; }
+  if (k === ' ') { e.preventDefault(); if (!space) { space = true; view$.classList.add('hand'); } return; }
+  if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); (e.shiftKey ? redoLast() : undoLast()).catch(() => {}); return; }
   if (e.metaKey || e.ctrlKey) return;
   if (k === 'v') setTool('select');
-  else if (k === 'a') setTool('arrow');
   else if (k === 'c') setTool('comment');
   else if (k === 'f') fitAll();
   else if (k === 'escape') { setTool('select'); select(null); }
   else if ((k === 'backspace' || k === 'delete') && sel) { const it = byId.get(sel); if (it) archive(it); }
 });
+document.addEventListener('keyup', e => { if (e.key === ' ') { space = false; view$.classList.remove('hand'); } });
+addEventListener('blur', () => { space = false; view$.classList.remove('hand'); });
 document.querySelectorAll<HTMLElement>('#bar [data-tool]').forEach(b => (b.onclick = () => setTool(b.dataset.tool as typeof tool)));
 $('#fit').onclick = fitAll;
-$('#send').onclick = async () => { hint(await op({ op: 'send' })); };
 $('#theme').onclick = () => {
   const light = document.body.classList.toggle('light'); document.body.classList.toggle('dark', !light);
   localStorage.setItem('theme', light ? 'light' : 'dark');
@@ -518,7 +591,7 @@ $('#theme').onclick = () => {
 if (localStorage.getItem('theme') === 'light') { document.body.className = 'light'; }
 $('#outline').addEventListener('click', e => {
   const d = (e.target as HTMLElement).closest('[data-key]') as HTMLElement | null;
-  if (!d || !board) return;
+  if (!d || !board || d.querySelector('[contenteditable="true"]')) return;
   const k = d.dataset.key!;
   if (k === '*') return fitAll();
   if (k === '~') return fit(bbox(solid().filter(i => !board!.sections.some(s => s.id === i.section))));
@@ -527,11 +600,11 @@ $('#outline').addEventListener('click', e => {
 $('#outline').addEventListener('dblclick', e => {
   const d = (e.target as HTMLElement).closest('[data-key]') as HTMLElement | null;
   const s = board?.sections.find(x => x.id === d?.dataset.key);
-  if (!s) return;
-  const t = prompt('Section title', s.title);
-  if (t) op({ op: 'renameSection', id: s.id, title: t });
+  if (s) renameInline(d!.querySelector('.name') as HTMLElement, s);
 });
 addEventListener('resize', applyView);
+// The canvas container must never scroll (focus can scroll it to reveal an editor); panning is the view transform.
+view$.addEventListener('scroll', () => { view$.scrollTop = 0; view$.scrollLeft = 0; });
 
 // ---------- live ----------
 let first = true;
