@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { findRoot, paths, ensureDirs } from './project.ts';
+import { findRoot, paths, ensureDirs, codeStamp } from './project.ts';
 import { Store } from './store.ts';
 import { hookLine } from './report.ts';
 
@@ -14,7 +14,9 @@ const HELP = `drawpad: shared visual board for a human and an agent
       [--below K | --right-of K | --in-row-with K | --at x,y] [--width W] [--height H]
       [--note N] [--commit C] [--launch L] [--files a,b]   same key = new version
   add --many items.json                   [{kind,key,path|text|url,section,...}]
-  capture sim --key K [add flags]         simulator screenshot -> image item
+  capture sim --key K [--bundle ID --launch "args"] [--wait S] [add flags]
+      simulator screenshot -> image item; --bundle relaunches the app with --launch first
+  drop <key> [--version N]                remove one version (default latest)
   feedback [--since REV] [--crops] [--json]   sent human feedback, marks it delivered
   crop <comment>                          path of a comment's crop png
   reply <comment> "text"     done <comment> [--artifact K]
@@ -48,16 +50,19 @@ function out(text: string) {
 }
 function fail(msg: string): never { process.stderr.write(msg + '\n'); process.exit(1); }
 
-async function ping(port: number) {
-  try { return (await fetch(`http://127.0.0.1:${port}/api/ping`, { signal: AbortSignal.timeout(400) })).ok; } catch { return false; }
+async function ping(port: number): Promise<{ stamp?: number } | null> {
+  try { const r = await fetch(`http://127.0.0.1:${port}/api/ping`, { signal: AbortSignal.timeout(400) }); return r.ok ? await r.json() : null; } catch { return null; }
 }
 
-// Returns the base URL of this project's server, starting it on demand.
+// Returns the base URL of this project's server, starting it on demand
+// (and restarting it when the drawpad code changed since it started).
 async function server(): Promise<string> {
   const p = ensureDirs(root);
   if (fs.existsSync(p.server)) {
-    const { port } = JSON.parse(fs.readFileSync(p.server, 'utf8'));
-    if (await ping(port)) return `http://127.0.0.1:${port}`;
+    const { port, pid } = JSON.parse(fs.readFileSync(p.server, 'utf8'));
+    const info = await ping(port);
+    if (info && info.stamp === codeStamp()) return `http://127.0.0.1:${port}`;
+    if (info) { try { process.kill(pid); } catch { /* gone */ } await new Promise(r => setTimeout(r, 200)); }
     fs.rmSync(p.server, { force: true });
   }
   const log = fs.openSync(p.log, 'a');
@@ -121,9 +126,9 @@ async function main() {
     }
     case 'add': {
       if (str('many')) {
-        const file = str('many')!, dir = path.dirname(path.resolve(file));
+        const file = str('many')!; // paths inside resolve against the current folder
         const items = JSON.parse(fs.readFileSync(file, 'utf8')).map((x: Record<string, unknown>) =>
-          ({ by: 'agent', ...x, path: x.path ? path.resolve(dir, String(x.path)) : undefined }));
+          ({ by: 'agent', ...x, path: x.path ? path.resolve(String(x.path)) : undefined }));
         return out(await op({ op: 'many', items }));
       }
       const kind = pos.shift();
@@ -132,6 +137,13 @@ async function main() {
     }
     case 'capture': {
       if (pos[0] !== 'sim') fail('capture sim --key K (capture url comes in step 4)');
+      const bundle = str('bundle');
+      if (bundle) {
+        try { execFileSync('xcrun', ['simctl', 'terminate', 'booted', bundle], { stdio: 'ignore' }); } catch { /* not running */ }
+        execFileSync('xcrun', ['simctl', 'launch', 'booted', bundle, ...(str('launch')?.split(/\s+/).filter(Boolean) ?? [])], { stdio: 'ignore' });
+      }
+      const wait = num('wait') ?? (bundle ? 2 : 0);
+      if (wait) await new Promise(r => setTimeout(r, wait * 1000));
       const tmp = path.join(os.tmpdir(), `drawpad-sim-${Date.now()}.png`);
       execFileSync('xcrun', ['simctl', 'io', 'booted', 'screenshot', tmp], { stdio: 'ignore' });
       const res = await op({ op: 'add', ...addArgs('image', tmp) });
@@ -145,6 +157,7 @@ async function main() {
       if (!it?.comment?.crop) fail(`no crop for ${pos[0]}`);
       return out(`.drawpad/assets/${it.comment.crop}`);
     }
+    case 'drop': return out(await op({ op: 'drop', id: pos[0], version: num('version') }));
     case 'reply': return out(await op({ op: 'reply', id: pos[0], text: pos.slice(1).join(' '), by: 'agent' }));
     case 'done': return out(await op({ op: 'done', id: pos[0], artifact: str('artifact') }));
     case 'arrow': return out(await op({ op: 'arrow', from: pos[0], to: pos[1], toPoint: pair('point'), label: str('label'), by: 'agent' }));

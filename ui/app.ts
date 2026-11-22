@@ -116,7 +116,7 @@ function md(src: string): string {
 
 function content(it: Item): string {
   const v = cur(it);
-  const label = (txt: string) => `<div class="label"><b>${esc(txt)}</b>${it.versions.length > 1 ? ` v${it.versions.length}` : ''}${it.createdBy === 'agent' && it.title ? ` · ${esc(it.key)}` : ''}</div>`;
+  const label = (txt: string) => `<div class="label"><b>${esc(txt)}</b>${cur(it).v > 1 ? ` v${cur(it).v}` : ''}${it.createdBy === 'agent' && it.title ? ` · ${esc(it.key)}` : ''}</div>`;
   const dot = it.createdBy === 'agent' && !it.seenByHuman ? '<div class="dot"></div>' : '';
   const react = it.reaction ? `<div class="react ${it.reaction.kind}">${it.reaction.kind === 'approve' ? '✓ approved' : '✗ rejected'}${it.reaction.sent === undefined ? ' (draft)' : ''}</div>` : '';
   if (it.kind === 'image') return `<img draggable="false">${label(it.title ?? it.key)}${dot}${react}`;
@@ -313,8 +313,8 @@ async function makeCrop(it: Item, point: [number, number], region?: [number, num
     const mx = region[2] * W * 0.25 + 40, my = region[3] * H * 0.25 + 40;
     cx = region[0] * W - mx; cy = region[1] * H - my; cw = region[2] * W + 2 * mx; ch = region[3] * H + 2 * my;
   } else {
-    const side = Math.min(Math.max(Math.min(W, H) * 0.45, 300), Math.min(W, H));
-    cx = point[0] * W - side / 2; cy = point[1] * H - side / 2; cw = ch = side;
+    // A pin alone doesn't say what it points at, so send the whole image with the pin drawn on it.
+    cx = 0; cy = 0; cw = W; ch = H;
   }
   cw = Math.min(cw, W); ch = Math.min(ch, H);
   cx = Math.max(0, Math.min(cx, W - cw)); cy = Math.max(0, Math.min(cy, H - ch));
@@ -324,7 +324,12 @@ async function makeCrop(it: Item, point: [number, number], region?: [number, num
   g.drawImage(img, cx, cy, cw, ch, 0, 0, c.width, c.height);
   g.strokeStyle = '#ff2d20'; g.lineWidth = Math.max(3, c.width / 150);
   if (region) g.strokeRect((region[0] * W - cx) * s, (region[1] * H - cy) * s, region[2] * W * s, region[3] * H * s);
-  else { g.beginPath(); g.arc((point[0] * W - cx) * s, (point[1] * H - cy) * s, Math.max(12, c.width / 30), 0, Math.PI * 2); g.stroke(); }
+  else {
+    const px = point[0] * W * s, py = point[1] * H * s, r = Math.max(10, c.width / 28);
+    g.beginPath(); g.arc(px, py, r, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.moveTo(px - r * 1.8, py); g.lineTo(px - r * 0.5, py); g.moveTo(px + r * 0.5, py); g.lineTo(px + r * 1.8, py);
+    g.moveTo(px, py - r * 1.8); g.lineTo(px, py - r * 0.5); g.moveTo(px, py + r * 0.5); g.lineTo(px, py + r * 1.8); g.stroke();
+  }
   const blob = await new Promise<Blob>(r => c.toBlob(b => r(b!), 'image/png'));
   return upload(blob, 'png', 'crop');
 }

@@ -30,6 +30,12 @@ V select · A arrow · C comment (click a spot, or drag a region) · F fit · Es
 Paste an image, URL or text anywhere; drop image files; double-click empty space to write a card.
 Nothing reaches the agent until **Send feedback**.
 
+Sections: an item belongs to a section until it is dropped inside another section's box. Dragging it
+past its own section's edge only stretches the box; it never makes the item loose. Pasted items join the
+section under the cursor, else they are loose ("Inbox / loose" in `drawpad board`).
+
+Pin comments send the whole image (max 1000px) with the pin drawn on it; region comments send a crop of the region.
+
 ## Dev
 
 `npm run check` type-checks (dev-only TypeScript).

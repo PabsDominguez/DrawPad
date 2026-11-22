@@ -38,3 +38,9 @@ export function writeAtomic(file: string, data: string) {
   fs.writeFileSync(tmp, data);
   fs.renameSync(tmp, file);
 }
+
+// Newest mtime of the server code; the CLI restarts a server started from older code.
+export function codeStamp(): number {
+  const dir = path.dirname(new URL(import.meta.url).pathname);
+  return Math.max(...fs.readdirSync(dir).filter(f => f.endsWith('.ts')).map(f => fs.statSync(path.join(dir, f)).mtimeMs));
+}

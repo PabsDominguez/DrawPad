@@ -13,10 +13,10 @@ export function boardText(s: Store, since?: number, section?: string): string {
   if (since !== undefined && since >= b.revision) return 'unchanged';
   const byId = new Map(b.items.map(i => [i.id, i]));
   const vis = b.items.filter(i => !draft(i) && (since === undefined || i.rev > since));
-  const out = [`rev ${b.revision} · round ${b.round} · ${b.items.filter(i => i.kind !== 'arrow' && !i.comment && i.state === 'active').length} items${since !== undefined ? ` · changes since ${since}` : ''}`];
+  const out = [`rev ${b.revision} · round ${b.round} · ${b.items.filter(i => i.kind !== 'arrow' && !i.comment && i.state === 'active' && !draft(i)).length} items${since !== undefined ? ` · changes since ${since}` : ''}`];
 
   const desc = (it: Item) => {
-    const v = it.versions.length;
+    const v = cur(it).v;
     let d = `${it.key} ${it.kind}${v > 1 ? ` v${v}` : ''}`;
     if (it.state !== 'active') d += ` ${it.state}`;
     if (it.createdBy === 'human') d += ' (human)';
@@ -81,7 +81,7 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
   const pointTo = (it: Item) => b.items.filter(a => a.kind === 'arrow' && a.from === it.id && a.state === 'active').map(a => byId.get(a.to!)?.key).filter(Boolean);
   const com = (c: Item) => {
     const k = c.comment!, t = byId.get(k.target!);
-    const now = t ? t.versions.length : 0;
+    const now = t ? cur(t).v : 0;
     let l = `${c.key} [${k.intent}] on ${t?.key} v${k.targetVersion}${now > (k.targetVersion ?? 0) ? ` (now v${now})` : ''}`;
     if (k.point) l += ` @${k.point.map(v => v.toFixed(2)).join(',')}`;
     if (k.region) l += ` region ${k.region[2].toFixed(2)}x${k.region[3].toFixed(2)}`;

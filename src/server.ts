@@ -4,6 +4,7 @@ import path from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.ts';
+import { codeStamp } from './project.ts';
 import { boardText, feedbackText, hookLine } from './report.ts';
 
 // Single writer for one project's .drawpad/. Web UI, CLI and hook are thin clients of this API.
@@ -14,17 +15,19 @@ const TYPES: Record<string, string> = { '.html': 'text/html', '.css': 'text/css'
 
 export function serve(root: string, port = 0): Promise<number> {
   const store = new Store(root);
+  const stamp = codeStamp();
   const clients = new Set<http.ServerResponse>();
   store.onChange.push(rev => { for (const c of clients) c.write(`data: ${rev}\n\n`); });
 
   const ops: Record<string, (a: any) => string> = {
     add: a => store.add(a),
-    many: a => (a.items as any[]).map(x => store.add(x)).join('\n'),
+    many: a => (a.items as any[]).map(x => { try { return store.add(x); } catch (e) { return `${x.key ?? '?'} error: ${(e as Error).message}`; } }).join('\n'),
     move: a => store.move(a.id, a.x, a.y, a.w, a.h, a.by),
     moveSection: a => store.moveSection(a.id, a.dx, a.dy),
     renameSection: a => store.renameSection(a.id, a.title),
     section: a => store.section(a.title, a.keys ?? []),
     edit: a => store.edit(a.id, a, a.by ?? 'agent'),
+    drop: a => store.drop(a.id, a.version),
     archive: a => store.setState(a.id, 'archived'),
     restore: a => store.setState(a.id, 'active'),
     arrow: a => store.arrow(a.from, a.to, a.by ?? 'agent', a.toPoint, a.label, a.key),
@@ -62,7 +65,7 @@ export function serve(root: string, port = 0): Promise<number> {
         return file(res, f);
       }
       if (p.startsWith('/a/')) return file(res, path.join(store.p.assets, path.basename(decodeURIComponent(p))), true);
-      if (p === '/api/ping') return send(res, 200, JSON.stringify({ ok: true, root, rev: store.board.revision }), 'application/json');
+      if (p === '/api/ping') return send(res, 200, JSON.stringify({ ok: true, root, rev: store.board.revision, stamp }), 'application/json');
       if (p === '/api/board') return send(res, 200, JSON.stringify(store.board), 'application/json');
       if (p === '/api/events') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });

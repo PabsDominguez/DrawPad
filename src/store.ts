@@ -74,7 +74,7 @@ export class Store {
     const sec = a.section ? this.sectionByTitle(a.section)! : undefined; // before the item exists, so it doesn't count as content
     const n = this.nid();
     const key = a.key ?? `${a.kind === 'image' ? 'img' : a.kind}-${n}`;
-    const ver: Version = { v: it ? it.versions.length + 1 : 1, at: now() };
+    const ver: Version = { v: it ? it.versions[it.versions.length - 1].v + 1 : 1, at: now() };
     if (a.note) ver.note = a.note;
 
     if (a.kind === 'image') {
@@ -152,14 +152,34 @@ export class Store {
     if (w) it.w = Math.round(w);
     if (h) it.h = Math.round(h);
     it.rev = rev;
-    if (by === 'human' && it.kind !== 'arrow') {
+    // Dragging never takes an item out of its section (the box stretches to follow it).
+    // Dropping it inside another section's box moves it into that section.
+    if (by === 'human' && it.kind !== 'arrow' && (dx || dy)) {
+      const into = this.sectionAt(it.x + it.w / 2, it.y + it.h / 2, it.id);
       const own = this.board.sections.find(s => s.id === it.section);
-      const alone = own && !solid(this.board).some(i => i.section === own.id && i.id !== it.id);
-      if (own && alone) { own.x += dx; own.y += dy; own.rev = rev; }
-      else it.section = this.sectionAt(it.x + it.w / 2, it.y + it.h / 2, it.id)?.id;
+      if (into && into.id !== it.section) it.section = into.id;
+      else if (own && !solid(this.board).some(i => i.section === own.id && i.id !== it.id)) { own.x += dx; own.y += dy; own.rev = rev; }
     }
     this.save();
     return line(this, it);
+  }
+
+  // Removes one version (default: the latest). Numbers are never reused; a version with comments stays.
+  drop(ref: string, v?: number): string {
+    const it = this.find(ref);
+    const target = v ?? it.versions[it.versions.length - 1].v;
+    const idx = it.versions.findIndex(x => x.v === target);
+    if (idx < 0) throw new Error(`${it.key} has no v${target}`);
+    if (it.versions.length === 1) throw new Error(`v${target} is the only version of ${it.key}; use archive`);
+    const refs = this.board.items.filter(c => c.comment?.target === it.id && c.comment.targetVersion === target && c.state === 'active');
+    if (refs.length) throw new Error(`v${target} has comments (${refs.map(c => c.key).join(', ')}); archive them first`);
+    const [gone] = it.versions.splice(idx, 1);
+    for (const f of [gone.asset, gone.thumb]) if (f) fs.rmSync(path.join(this.p.assets, f), { force: true });
+    const last = it.versions[it.versions.length - 1];
+    if (it.kind === 'image' && last.pw && last.ph) it.h = Math.round(it.w * last.ph / last.pw);
+    it.rev = this.bump();
+    this.save();
+    return `${it.key} dropped v${target}; now v${last.v} (${it.versions.length} versions)`;
   }
 
   moveSection(id: string, dx: number, dy: number) {
@@ -336,7 +356,7 @@ export class Store {
 }
 
 export function line(s: Store, it: Item): string {
-  const v = it.versions.length;
+  const v = it.versions[it.versions.length - 1].v;
   const sec = s.board.sections.find(x => x.id === it.section);
   return `${it.key} v${v} ${it.kind} @${it.x},${it.y} ${it.w}x${it.h}${sec ? ` [${sec.title}]` : ''}`;
 }
