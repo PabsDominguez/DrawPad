@@ -1,0 +1,348 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import type { Board, By, Intent, Item, Section, Source, Version } from './types.ts';
+import { ensureDirs, paths, writeAtomic } from './project.ts';
+import { imageSize, makeThumb } from './images.ts';
+import { GAP, PAD, SECTION_GAP, contentBottom, imageBox, moveSection, place, sectionRect, solid, textHeight } from './layout.ts';
+
+export interface AddArgs {
+  kind: 'image' | 'text' | 'link';
+  key?: string; title?: string; section?: string;
+  path?: string; asset?: string; text?: string; url?: string;
+  at?: [number, number]; below?: string; rightOf?: string; inRowWith?: string;
+  width?: number; height?: number; pw?: number; ph?: number;
+  source?: Source; note?: string; by?: By; color?: string;
+}
+
+const now = () => new Date().toISOString();
+const SCHEMA = 1;
+
+export class Store {
+  root: string;
+  p: ReturnType<typeof paths>;
+  board: Board;
+  onChange: ((rev: number) => void)[] = [];
+  waiters: (() => void)[] = [];
+
+  constructor(root: string) {
+    this.root = root;
+    this.p = ensureDirs(root);
+    if (fs.existsSync(this.p.board)) this.board = migrate(JSON.parse(fs.readFileSync(this.p.board, 'utf8')));
+    else {
+      this.board = { schemaVersion: SCHEMA, revision: 0, nextId: 1, id: `b${Date.now().toString(36)}`, name: path.basename(root),
+        background: 'dark', round: 1, items: [], sections: [], relations: [], groups: [], rounds: [] };
+      this.save();
+    }
+  }
+
+  save() {
+    writeAtomic(this.p.board, JSON.stringify(this.board, null, 1));
+    for (const f of this.onChange) f(this.board.revision);
+  }
+  bump() { return ++this.board.revision; }
+  nid() { return this.board.nextId++; }
+
+  find(ref: string): Item {
+    const it = this.board.items.find(i => i.key === ref) ?? this.board.items.find(i => i.id === ref);
+    if (!it) throw new Error(`no item "${ref}"`);
+    return it;
+  }
+  sectionByTitle(title: string, create = true): Section | undefined {
+    let s = this.board.sections.find(x => x.title.toLowerCase() === title.toLowerCase());
+    if (!s && create) {
+      const bottom = contentBottom(this.board);
+      s = { id: `s${this.nid()}`, title, x: 0, y: bottom === null ? 0 : bottom + SECTION_GAP + PAD, rev: this.board.revision };
+      this.board.sections.push(s);
+    }
+    return s;
+  }
+  // Section whose box contains the point, ignoring one item.
+  sectionAt(x: number, y: number, ignore?: string): Section | undefined {
+    return this.board.sections.find(s => {
+      const r = sectionRect(this.board, s, ignore);
+      return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    });
+  }
+
+  // Upsert by key: same key adds a version. Returns the one-line result (+ problems).
+  add(a: AddArgs): string {
+    const by = a.by ?? 'agent';
+    const rev = this.bump();
+    let it = a.key ? this.board.items.find(i => i.key === a.key) : undefined;
+    if (it && it.kind !== a.kind) throw new Error(`key "${a.key}" is a ${it.kind}, not ${a.kind}`);
+    const isNew = !it;
+    const sec = a.section ? this.sectionByTitle(a.section)! : undefined; // before the item exists, so it doesn't count as content
+    const n = this.nid();
+    const key = a.key ?? `${a.kind === 'image' ? 'img' : a.kind}-${n}`;
+    const ver: Version = { v: it ? it.versions.length + 1 : 1, at: now() };
+    if (a.note) ver.note = a.note;
+
+    if (a.kind === 'image') {
+      let file: string;
+      if (a.asset) file = path.join(this.p.assets, path.basename(a.asset));
+      else if (a.path) {
+        if (!fs.existsSync(a.path)) throw new Error(`no file ${a.path}`);
+        const name = `${key.replace(/[^\w.-]/g, '_')}-v${ver.v}${path.extname(a.path).toLowerCase() || '.png'}`;
+        file = path.join(this.p.assets, name);
+        fs.copyFileSync(a.path, file);
+      } else throw new Error('image needs a path');
+      const size = imageSize(file) ?? (a.pw && a.ph ? [a.pw, a.ph] : [800, 600]);
+      ver.asset = path.basename(file); [ver.pw, ver.ph] = size;
+      ver.thumb = makeThumb(file, size[0]);
+    } else if (a.kind === 'text') ver.text = a.text ?? '';
+    else if (a.kind === 'link') { if (!a.url) throw new Error('link needs a url'); ver.url = a.url; }
+
+    if (!it) {
+      it = { id: `i${n}`, key, kind: a.kind, x: 0, y: 0, w: 0, h: 0, z: n, state: 'active', versions: [],
+        createdBy: by, round: this.board.round, createdAt: now(), rev, seenByHuman: by === 'human' };
+      this.board.items.push(it);
+    }
+    it.versions.push(ver);
+    it.rev = rev;
+    if (a.title) it.title = a.title;
+    if (a.color) it.color = a.color;
+    if (a.source) it.source = a.source;
+    if (by === 'agent') it.seenByHuman = false;
+    else { it.sent = undefined; it.delivered = false; }
+
+    // size
+    if (a.kind === 'image') {
+      if (isNew || a.width || a.height) [it.w, it.h] = imageBox(ver.pw!, ver.ph!, a.width, a.height);
+      else it.h = Math.round(it.w * ver.ph! / ver.pw!);
+    } else if (a.kind === 'text') {
+      it.w = a.width ?? (it.w || 280);
+      it.h = a.height ?? textHeight(ver.text!, it.w);
+    } else if (isNew) { it.w = a.width ?? 280; it.h = a.height ?? 96; }
+
+    // section + placement
+    let problems: string[] = [];
+    const oldSection = it.section;
+    if (by === 'human' && a.at) {
+      it.x = Math.round(a.at[0]); it.y = Math.round(a.at[1]);
+      it.section = sec ? sec.id : this.sectionAt(it.x, it.y, it.id)?.id;
+    } else {
+      if (sec) it.section = sec.id;
+      const anchor = (r?: string) => (r ? this.find(r) : undefined);
+      const o = { at: a.at, below: anchor(a.below), rightOf: anchor(a.rightOf), inRowWith: anchor(a.inRowWith) };
+      if (!a.section && !isNew && !(o.at || o.below || o.rightOf || o.inRowWith)) {
+        problems = place(this.board, it, { at: [it.x, it.y] }).filter(p => !p.startsWith('overlap'));
+      } else {
+        if (!a.section && (o.below || o.rightOf || o.inRowWith)) it.section = (o.below ?? o.rightOf ?? o.inRowWith)!.section;
+        if (isNew || o.at || o.below || o.rightOf || o.inRowWith || it.section !== oldSection) problems = place(this.board, it, o);
+      }
+    }
+    if (a.kind === 'link' && by === 'human' && !a.title) this.fetchTitle(it, ver.url!);
+    this.save();
+    return line(this, it) + problems.map(p => `\n  ! ${p}`).join('');
+  }
+
+  private async fetchTitle(it: Item, url: string) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(5000), headers: { 'user-agent': 'drawpad' } });
+      const m = /<title[^>]*>([^<]{1,200})<\/title>/i.exec(await r.text());
+      if (m) { it.title = m[1].trim().replace(/&amp;/g, '&'); it.rev = this.bump(); this.save(); }
+    } catch { /* title stays empty */ }
+  }
+
+  move(ref: string, x: number, y: number, w?: number, h?: number, by: By = 'agent'): string {
+    const it = this.find(ref);
+    const rev = this.bump();
+    const dx = x - it.x, dy = y - it.y;
+    it.x = Math.round(x); it.y = Math.round(y);
+    if (w) it.w = Math.round(w);
+    if (h) it.h = Math.round(h);
+    it.rev = rev;
+    if (by === 'human' && it.kind !== 'arrow') {
+      const own = this.board.sections.find(s => s.id === it.section);
+      const alone = own && !solid(this.board).some(i => i.section === own.id && i.id !== it.id);
+      if (own && alone) { own.x += dx; own.y += dy; own.rev = rev; }
+      else it.section = this.sectionAt(it.x + it.w / 2, it.y + it.h / 2, it.id)?.id;
+    }
+    this.save();
+    return line(this, it);
+  }
+
+  moveSection(id: string, dx: number, dy: number) {
+    const s = this.board.sections.find(x => x.id === id || x.title === id);
+    if (!s) throw new Error(`no section ${id}`);
+    this.bump(); moveSection(this.board, s, dx, dy); this.save();
+    return `section "${s.title}" moved`;
+  }
+
+  renameSection(id: string, title: string) {
+    const s = this.board.sections.find(x => x.id === id);
+    if (!s) throw new Error(`no section ${id}`);
+    s.title = title; s.rev = this.bump(); this.save();
+    return `section "${title}"`;
+  }
+
+  // Creates the section if needed and moves the given items into its row.
+  section(title: string, keys: string[]): string {
+    this.bump();
+    const s = this.sectionByTitle(title)!;
+    const out: string[] = [];
+    for (const k of keys) {
+      const it = this.find(k);
+      it.section = s.id; it.rev = this.board.revision;
+      const p = place(this.board, it, {});
+      out.push(`${it.key}@${it.x},${it.y}` + p.map(x => ` (${x})`).join(''));
+    }
+    this.save();
+    return `section "${s.title}"${out.length ? ': ' + out.join(', ') : ''}`;
+  }
+
+  // Human edits to their own text; agent edits go through add (versions).
+  edit(ref: string, f: { text?: string; title?: string; intent?: Intent; h?: number; w?: number }, by: By): string {
+    const it = this.find(ref);
+    if (f.text !== undefined && it.createdBy !== by) throw new Error(`${it.key} belongs to the ${it.createdBy}`);
+    const rev = this.bump();
+    const cur = it.versions[it.versions.length - 1];
+    if (f.text !== undefined) {
+      if (it.sent === undefined) cur.text = f.text;
+      else it.versions.push({ v: cur.v + 1, at: now(), text: f.text });
+      it.h = f.h ?? textHeight(f.text, it.w);
+    }
+    if (f.w) it.w = f.w;
+    if (f.title !== undefined) it.title = f.title;
+    if (f.intent && it.comment) it.comment.intent = f.intent;
+    if (by === 'human') { it.sent = undefined; it.delivered = false; }
+    it.rev = rev;
+    this.save();
+    return line(this, it);
+  }
+
+  setState(ref: string, state: Item['state']): string {
+    const it = this.find(ref);
+    it.state = state; it.rev = this.bump();
+    for (const a of this.board.items) if (a.kind === 'arrow' && (a.from === it.id || a.to === it.id) && a.state !== state && state === 'archived') { a.state = 'archived'; a.rev = it.rev; }
+    this.save();
+    return `${it.key} ${state}`;
+  }
+
+  arrow(fromRef: string, toRef: string, by: By, toPoint?: [number, number], label?: string, key?: string): string {
+    const from = this.find(fromRef), to = this.find(toRef);
+    const rev = this.bump(), n = this.nid();
+    const a: Item = { id: `i${n}`, key: key ?? `a-${n}`, kind: 'arrow', x: 0, y: 0, w: 0, h: 0, z: n, state: 'active', versions: [{ v: 1, at: now() }],
+      createdBy: by, round: this.board.round, createdAt: now(), rev, seenByHuman: by === 'human', from: from.id, to: to.id };
+    if (toPoint) a.toPoint = toPoint;
+    if (label) a.label = label;
+    this.board.items.push(a);
+    this.save();
+    return `${a.key} ${from.key} -> ${to.key}${toPoint ? ` @${toPoint.map(v => v.toFixed(2))}` : ''}`;
+  }
+
+  comment(c: { target: string; text: string; intent?: Intent; point?: [number, number]; region?: [number, number, number, number]; crop?: string; by: By; at?: [number, number] }): string {
+    const t = this.find(c.target);
+    const rev = this.bump(), n = this.nid();
+    const ver = t.versions[t.versions.length - 1].v;
+    const w = 240, h = textHeight(c.text, w) + 24;
+    const it: Item = { id: `i${n}`, key: `c-${n}`, kind: 'text', x: 0, y: 0, w, h, z: n, state: 'active',
+      versions: [{ v: 1, at: now(), text: c.text }], createdBy: c.by, round: this.board.round, createdAt: now(), rev,
+      seenByHuman: c.by === 'human', section: t.section,
+      comment: { intent: c.intent ?? 'change', status: 'open', thread: [], target: t.id, targetVersion: ver } };
+    if (c.point) it.comment!.point = c.point;
+    if (c.region) it.comment!.region = c.region;
+    if (c.crop) it.comment!.crop = path.basename(c.crop);
+    // Beside the target at the point's height; under the target when a neighbour is in the way.
+    const right = { x: t.x + t.w + GAP, y: Math.round(t.y + (c.point ? c.point[1] * t.h : 0) - 20), w, h };
+    const blocked = solid(this.board).some(o => !o.comment && o.id !== t.id &&
+      o.x < right.x + w + GAP && right.x < o.x + o.w && o.y < right.y + h && right.y < o.y + o.h);
+    this.board.items.push(it);
+    place(this.board, it, { at: c.at ?? (blocked ? [t.x, t.y + t.h + GAP] : [right.x, right.y]), flow: 'down' });
+    this.arrowNoSave(it, t, c.by, c.point);
+    this.save();
+    return line(this, it);
+  }
+  private arrowNoSave(from: Item, to: Item, by: By, toPoint?: [number, number]) {
+    const n = this.nid();
+    const a: Item = { id: `i${n}`, key: `a-${from.key}`, kind: 'arrow', x: 0, y: 0, w: 0, h: 0, z: n, state: 'active', versions: [{ v: 1, at: now() }],
+      createdBy: by, round: this.board.round, createdAt: now(), rev: this.board.revision, seenByHuman: by === 'human', from: from.id, to: to.id };
+    if (toPoint) a.toPoint = toPoint;
+    this.board.items.push(a);
+  }
+
+  reply(ref: string, text: string, by: By): string {
+    const it = this.find(ref);
+    if (!it.comment) throw new Error(`${it.key} is not a comment`);
+    it.comment.thread.push({ by, text, at: now() });
+    it.rev = this.bump();
+    if (by === 'agent') it.seenByHuman = false;
+    this.save();
+    return `${it.key} replied (${it.comment.thread.length})`;
+  }
+
+  setStatus(ref: string, status: 'open' | 'addressed' | 'resolved', artifact?: string): string {
+    const it = this.find(ref);
+    if (!it.comment) throw new Error(`${it.key} is not a comment`);
+    it.comment.status = status;
+    if (artifact) it.comment.artifact = this.find(artifact).key;
+    it.rev = this.bump();
+    if (status === 'addressed') it.seenByHuman = false;
+    this.save();
+    return `${it.key} ${status}${artifact ? ` in ${artifact}` : ''}`;
+  }
+
+  react(ref: string, kind: 'approve' | 'reject', reason?: string): string {
+    const it = this.find(ref);
+    it.reaction = { kind, reason, version: it.versions[it.versions.length - 1].v };
+    it.rev = this.bump();
+    this.save();
+    return `${it.key} ${kind}`;
+  }
+
+  // Human "Send feedback": drafts become visible to the agent.
+  send(): string {
+    const rev = this.bump();
+    const b = this.board;
+    let n = 0;
+    const decisions: string[] = [];
+    const day = now().slice(0, 10);
+    for (const it of b.items) {
+      if (it.createdBy === 'human' && it.sent === undefined && it.state === 'active') { it.sent = rev; it.delivered = false; n++; }
+      if (it.reaction && it.reaction.sent === undefined) {
+        it.reaction.sent = rev; it.reaction.delivered = false; n++;
+        decisions.push(`- ${day} ${it.reaction.kind} ${it.key} v${it.reaction.version}${it.reaction.reason ? `: ${it.reaction.reason}` : ''}`);
+      }
+      for (const t of it.comment?.thread ?? []) if (t.by === 'human' && t.sent === undefined) { t.sent = rev; n++; }
+      if (it.createdBy === 'agent') it.seenByHuman = true;
+    }
+    if (decisions.length) fs.appendFileSync(this.p.decisions, decisions.join('\n') + '\n');
+    b.rounds.push({ id: b.round, at: now(), label: `Round ${b.round}, ${new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` });
+    b.round++;
+    this.save();
+    fs.writeFileSync(path.join(this.p.history, `rev-${rev}.json`), JSON.stringify(b));
+    const w = this.waiters; this.waiters = [];
+    for (const f of w) f();
+    return `sent ${n}`;
+  }
+
+  // Counts of sent-but-undelivered feedback.
+  pending() {
+    let comments = 0, items = 0, reactions = 0, replies = 0;
+    for (const it of this.board.items) {
+      if (it.createdBy === 'human' && it.sent !== undefined && !it.delivered && it.state === 'active') {
+        if (it.comment) comments++; else if (it.kind !== 'arrow') items++;
+      }
+      if (it.reaction?.sent !== undefined && !it.reaction.delivered) reactions++;
+      for (const t of it.comment?.thread ?? []) if (t.by === 'human' && t.sent !== undefined && !t.delivered) replies++;
+    }
+    return { comments, items, reactions, replies, total: comments + items + reactions + replies };
+  }
+
+  decisions(last = 3): string[] {
+    if (!fs.existsSync(this.p.decisions)) return [];
+    return fs.readFileSync(this.p.decisions, 'utf8').trim().split('\n').filter(Boolean).slice(-last);
+  }
+}
+
+export function line(s: Store, it: Item): string {
+  const v = it.versions.length;
+  const sec = s.board.sections.find(x => x.id === it.section);
+  return `${it.key} v${v} ${it.kind} @${it.x},${it.y} ${it.w}x${it.h}${sec ? ` [${sec.title}]` : ''}`;
+}
+
+function migrate(b: Board): Board {
+  if (b.schemaVersion > SCHEMA) throw new Error(`board.json schema ${b.schemaVersion} is newer than this drawpad`);
+  b.schemaVersion = SCHEMA;
+  return b;
+}
