@@ -14,7 +14,8 @@ drawpad app              # optional: ~/Applications/DrawPad <project>.app for Sp
 drawpad help
 ```
 
-`open` uses Chrome's app mode (a window without tabs or address bar). Each project gets a fixed port, so
+`open` uses Chrome's app mode (a window without tabs or address bar) in a DrawPad-only Chrome profile, so it runs
+as its own instance whether or not your Chrome is open. Each project gets a fixed port, so
 the window keeps its size and position. The launcher pins the current Node path; run `drawpad app` again
 after switching Node versions.
 

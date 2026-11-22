@@ -109,10 +109,13 @@ function addArgs(kind: string, src?: string) {
 }
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-// Own window without tabs or address bar (Chrome app mode); a plain browser tab if Chrome is missing.
+// Own window without tabs or address bar (Chrome app mode) in a DrawPad-only Chrome profile: it runs as
+// its own instance (own Dock icon, works whether or not the user's Chrome is open). Plain tab if no Chrome.
 function openWindow(url: string) {
   if (!fs.existsSync(CHROME)) return void execFileSync('open', [url]);
-  spawn(CHROME, [`--app=${url}`], { detached: true, stdio: 'ignore' }).unref();
+  const profile = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'chrome');
+  fs.mkdirSync(profile, { recursive: true });
+  spawn(CHROME, [`--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', `--app=${url}`], { detached: true, stdio: 'ignore' }).unref();
 }
 
 // ~/Applications/DrawPad <Project>.app: a launcher for Spotlight and the Dock.
