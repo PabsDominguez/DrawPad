@@ -44,3 +44,10 @@ export function codeStamp(): number {
   const dir = path.dirname(new URL(import.meta.url).pathname);
   return Math.max(...fs.readdirSync(dir).filter(f => f.endsWith('.ts')).map(f => fs.statSync(path.join(dir, f)).mtimeMs));
 }
+
+// Stable per-project port (47100-47999) so the app window keeps its address, size and position.
+export function preferredPort(root: string): number {
+  let h = 0;
+  for (const c of path.resolve(root)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return 47100 + (h % 900);
+}

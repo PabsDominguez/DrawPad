@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { findRoot, paths, ensureDirs, codeStamp } from './project.ts';
+import { findRoot, paths, ensureDirs, codeStamp, preferredPort } from './project.ts';
 import { Store } from './store.ts';
 import { hookLine } from './report.ts';
 
@@ -24,7 +24,8 @@ const HELP = `drawpad: shared visual board for a human and an agent
   section "Title" [keys...]  move <key> --at x,y  archive|restore <key>
   hook                       one line when feedback waits (UserPromptSubmit hook)
   wait [--timeout S]         blocks until feedback waits and the human paused ~8s
-  serve [--port P]  open  url  stats`;
+  open                       board in its own window      app   make a Dock/Spotlight launcher
+  serve [--port P]  url  stats`;
 
 const BOOL = new Set(['crops', 'json', 'help', 'quiet']);
 const argv = process.argv.slice(2);
@@ -66,7 +67,7 @@ async function server(): Promise<string> {
     fs.rmSync(p.server, { force: true });
   }
   const log = fs.openSync(p.log, 'a');
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', fileURLToPath(import.meta.url), 'serve', '--quiet'], { cwd: root, detached: true, stdio: ['ignore', log, log] });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', fileURLToPath(import.meta.url), 'serve', '--quiet', '--port', String(preferredPort(root))], { cwd: root, detached: true, stdio: ['ignore', log, log] });
   child.unref();
   for (let i = 0; i < 50; i++) {
     await new Promise(r => setTimeout(r, 100));
@@ -107,6 +108,35 @@ function addArgs(kind: string, src?: string) {
   return a;
 }
 
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Own window without tabs or address bar (Chrome app mode); a plain browser tab if Chrome is missing.
+function openWindow(url: string) {
+  if (!fs.existsSync(CHROME)) return void execFileSync('open', [url]);
+  spawn(CHROME, [`--app=${url}`], { detached: true, stdio: 'ignore' }).unref();
+}
+
+// ~/Applications/DrawPad <Project>.app: a launcher for Spotlight and the Dock.
+function makeApp(): string {
+  if (!findRoot()) fail('run this inside a project with a .drawpad folder');
+  const name = `DrawPad ${path.basename(root)}`;
+  const app = path.join(os.homedir(), 'Applications', `${name}.app`);
+  const macos = path.join(app, 'Contents', 'MacOS');
+  fs.mkdirSync(macos, { recursive: true });
+  const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+  fs.writeFileSync(path.join(macos, 'launch'), `#!/bin/sh\ncd ${q(root)} && exec ${q(process.execPath)} --disable-warning=ExperimentalWarning ${q(fileURLToPath(import.meta.url))} open\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>${name}</string>
+<key>CFBundleIdentifier</key><string>local.drawpad.${path.basename(root).replace(/[^\w]/g, '')}</string>
+<key>CFBundleExecutable</key><string>launch</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSUIElement</key><true/>
+</dict></plist>
+`);
+  return `${app}\nOpen it from Spotlight ("${name}") or drag it to the Dock.`;
+}
+
 async function main() {
   if (fl.help || verb === 'help') return out(HELP);
   switch (verb) {
@@ -117,7 +147,8 @@ async function main() {
       return;
     }
     case 'url': return out(await server() + '/');
-    case 'open': { const u = await server() + '/'; execFileSync('open', [u]); return out(u); }
+    case 'open': { const u = await server() + '/'; openWindow(u); return out(u); }
+    case 'app': return out(makeApp());
     case 'board': {
       const q = new URLSearchParams();
       if (str('since')) q.set('since', str('since')!);

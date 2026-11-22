@@ -9,9 +9,14 @@ server strips types for the browser UI too. Image sizes and thumbnails use macOS
 npm link                 # once: puts `drawpad` on PATH
 cd ~/some/project
 mkdir .drawpad           # or let the first `drawpad add` create it
-drawpad open             # starts the per-project server on demand, opens the board
+drawpad open             # starts the per-project server on demand, opens the board in its own window
+drawpad app              # optional: ~/Applications/DrawPad <project>.app for Spotlight and the Dock
 drawpad help
 ```
+
+`open` uses Chrome's app mode (a window without tabs or address bar). Each project gets a fixed port, so
+the window keeps its size and position. The launcher pins the current Node path; run `drawpad app` again
+after switching Node versions.
 
 ## Claude Code hook
 

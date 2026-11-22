@@ -112,10 +112,13 @@ export function serve(root: string, port = 0): Promise<number> {
   });
 
   return new Promise(resolve => {
-    server.listen(port, '127.0.0.1', () => {
+    const ready = () => {
       const actual = (server.address() as { port: number }).port;
       fs.writeFileSync(store.p.server, JSON.stringify({ port: actual, pid: process.pid }));
       resolve(actual);
-    });
+    };
+    // Preferred port taken (another project hashed to it): fall back to any free port.
+    server.once('error', (e: NodeJS.ErrnoException) => { if (e.code === 'EADDRINUSE' && port) server.listen(0, '127.0.0.1', ready); else throw e; });
+    server.listen(port, '127.0.0.1', ready);
   });
 }
