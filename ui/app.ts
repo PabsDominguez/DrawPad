@@ -616,5 +616,9 @@ new EventSource('/api/events').onmessage = async e => {
     const saved = localStorage.getItem('view-' + board!.id);
     if (saved) { view = JSON.parse(saved); applyView(); } else fitAll();
     document.title = `DrawPad · ${board!.name}`;
+    // One window per board: a newly opened window (it comes to the front) closes the older ones.
+    const bc = new BroadcastChannel('drawpad-' + board!.id);
+    bc.onmessage = m => { if (m.data === 'opened') window.close(); };
+    bc.postMessage('opened');
   }
 };

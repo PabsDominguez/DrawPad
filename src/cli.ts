@@ -115,18 +115,21 @@ function openWindow(url: string) {
   if (!fs.existsSync(CHROME)) return void execFileSync('open', [url]);
   const profile = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'chrome');
   fs.mkdirSync(profile, { recursive: true });
-  spawn(CHROME, [`--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', `--app=${url}`], { detached: true, stdio: 'ignore' }).unref();
+  // Chrome brings the new window to the front; the page then closes any older window of the same board.
+  // Through LaunchServices (`open -n`) so macOS brings it to the front even when started from a launcher.
+  execFileSync('open', ['-n', '-a', CHROME.replace(/\/Contents\/.*/, ''), '--args', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', `--app=${url}`]);
 }
 
-// ~/Applications/DrawPad <Project>.app: a launcher for Spotlight and the Dock.
+// ~/Applications/DrawPad <Project>.app: a minimal launcher (shell-script bundle) for Spotlight and the Dock.
 function makeApp(): string {
   if (!findRoot()) fail('run this inside a project with a .drawpad folder');
   const name = `DrawPad ${path.basename(root)}`;
   const app = path.join(os.homedir(), 'Applications', `${name}.app`);
-  const macos = path.join(app, 'Contents', 'MacOS');
-  fs.mkdirSync(macos, { recursive: true });
-  const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-  fs.writeFileSync(path.join(macos, 'launch'), `#!/bin/sh\ncd ${q(root)} && exec ${q(process.execPath)} --disable-warning=ExperimentalWarning ${q(fileURLToPath(import.meta.url))} open\n`, { mode: 0o755 });
+  const q = (x: string) => `'${x.replace(/'/g, `'\\''`)}'`;
+  fs.rmSync(app, { recursive: true, force: true });
+  fs.mkdirSync(path.join(app, 'Contents', 'MacOS'), { recursive: true });
+  fs.writeFileSync(path.join(app, 'Contents', 'MacOS', 'launch'),
+    `#!/bin/sh\ncd ${q(root)} && exec ${q(process.execPath)} --disable-warning=ExperimentalWarning ${q(fileURLToPath(import.meta.url))} open\n`, { mode: 0o755 });
   fs.writeFileSync(path.join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -137,6 +140,7 @@ function makeApp(): string {
 <key>LSUIElement</key><true/>
 </dict></plist>
 `);
+  try { execFileSync('mdimport', [app], { stdio: 'ignore' }); } catch { /* Spotlight picks it up later */ }
   return `${app}\nOpen it from Spotlight ("${name}") or drag it to the Dock.`;
 }
 
