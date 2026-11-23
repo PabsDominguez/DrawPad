@@ -200,6 +200,15 @@ export class Store {
     return `section "${title}"`;
   }
 
+  // Copies of items (the human's copy / paste), offset by dx, dy. Images get their own asset file.
+  duplicate(ids: string[], dx: number, dy: number): string {
+    return ids.map(id => this.find(id)).filter(it => it.kind !== 'arrow' && !it.comment).map(it => {
+      const v = it.versions[it.versions.length - 1];
+      return this.add({ kind: it.kind as 'image' | 'text' | 'link', by: 'human', at: [it.x + dx, it.y + dy], width: it.w, height: it.h, title: it.title,
+        text: v.text, url: v.url, path: v.asset ? path.join(this.p.assets, v.asset) : undefined });
+    }).join('\n');
+  }
+
   // A frame the human drew (or the undo of removing one): explicit box, adopts the given items in place.
   frame(f: { id?: string; title?: string; x: number; y: number; w?: number; h?: number; ids?: string[] }): string {
     const rev = this.bump();

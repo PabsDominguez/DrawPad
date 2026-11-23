@@ -40,6 +40,7 @@ export function serve(root: string, port = 0): Promise<number> {
     repin: a => store.repin(a.id, a.point, a.region, a.crop),
     seen: a => store.seen(a.ids ?? []),
     frame: a => store.frame(a),
+    duplicate: a => store.duplicate(a.ids ?? [], a.dx ?? 40, a.dy ?? 40),
     unframe: a => store.unframe(a.id, a.restore),
     resizeSection: a => store.resizeSection(a.id, a.x, a.y, a.w, a.h),
     // Several ops as one human action (one undo step).

@@ -39,11 +39,12 @@ V select · C comment · F frame · Space hand · ⇧1 fit all · Esc · ⌫ del
 ⌘Z undo · ⇧⌘Z redo · double-click a section title to rename it.
 
 Select: drag on empty canvas for a selection box (Shift adds), Shift-click to add/remove, drag any selected
-item to move them all. Pan with Space-drag, the trackpad or the scroll wheel; zoom with pinch or ⌘-scroll.
+item to move them all, or its corner handle to scale them all. ⌘C / ⌘V copies items (pasted at the cursor). Pan with Space-drag, the trackpad or the scroll wheel; zoom with pinch or ⌘-scroll.
 Paste an image, URL or text anywhere; drop image files; double-click empty space to write a card.
 
 Comments: click a spot (or drag a region) on an item. A comment goes to the agent when you save it (Enter);
-there is no Send step. It then collapses to its pin; click the pin to open or close it, drag it to move it.
+there is no Send step. It then collapses to its pin; hover its pin to peek, click to open (× closes it), drag to move it.
+A comment ending in "?" is sent as a question unless you picked a type.
 A blue dot on a pin means the agent replied.
 
 Frames and sections: press F and drag out a box (what's fully inside joins it), or select items and

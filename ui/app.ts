@@ -172,13 +172,13 @@ function content(it: Item): string {
     const c = it.comment;
     const thread = c.thread.map(t => `<div class="reply"><b>${t.by === 'agent' ? 'agent' : 'you'}</b> ${md(t.text)}</div>`).join('');
     const mine = it.createdBy === 'human';
-    const close = pinArrow(it) ? '<button data-act="close" title="Collapse to the pin">Close</button>' : '';
+    const close = pinArrow(it) ? '<span class="x" data-act="close" title="Collapse to the pin">×</span>' : '';
     const acts = c.status !== 'resolved'
-      ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}${close}</div>`
-      : `<div class="acts"><button data-act="reopen">Reopen</button>${close}</div>`;
+      ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}</div>`
+      : `<div class="acts"><button data-act="reopen">Reopen</button></div>`;
     const state = c.status === 'open' ? (it.delivered || !mine ? 'open' : 'waiting for agent') : c.status;
     return `<div class="card comment${c.status === 'resolved' ? ' done' : ''}" style="height:100%"><div class="head"><span class="chip i-${c.intent}"${mine ? ' data-act="intent" title="Click to change"' : ''}>${c.intent}</span>` +
-      `<span class="s-${c.status}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span></div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
+      `<span class="s-${c.status}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span>${close}</div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
   }
   return `<div class="card" style="height:100%">${md(v.text ?? '')}</div>${it.title ? label(it.title) : ''}${dot}${react}`;
 }
@@ -217,10 +217,20 @@ function render() {
   }
   for (const [id, el] of secEls) if (!liveS.has(id)) { el.remove(); secEls.delete(id); }
 
+  groupBox();
   outline(); status(); selbar(); cull(); drawArrows();
   requestAnimationFrame(fitCards);
 }
 // Text cards grow to their content; the real height goes back to the server so placement stays honest.
+// Several items selected: one box around them with a corner handle that scales them all.
+const gbox = document.createElement('div'); gbox.className = 'gbox'; gbox.innerHTML = '<div class="handle ghandle" title="Drag to resize the selection"></div>';
+const groupItems = () => [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && i.state === 'active' && !closed(i)) as Item[];
+function groupBox() {
+  const g = groupItems(), r = g.length > 1 ? bbox(g) : null;
+  if (!r) return gbox.remove();
+  if (!gbox.parentNode) world.appendChild(gbox);
+  place(gbox, r);
+}
 function fitCards() {
   for (const it of visible()) {
     if (it.kind !== 'text' || busy === it.id) continue;
@@ -285,8 +295,8 @@ function commentLink(c: Item, a: Item, p: [number, number], k: number): string {
     line = `<path class="halo" d="${d}" stroke-width="${4 * k}"/><path class="ln" d="${d}" stroke-width="${1.5 * k}" stroke-dasharray="${5 * k} ${4 * k}"/>`;
   }
   const r = (shut ? 9 : 5) * k, unread = !c.seenByHuman ? `<circle class="unread" cx="${p[0] + r}" cy="${p[1] - r}" r="${4 * k}"/>` : '';
-  const tip = shut ? 'Click to open · drag to move' : 'Click to close · drag to move';
-  return `<g class="${cls}">${line}<circle class="pinh i-${c.comment!.intent}${shut ? ' shut' : ''}" data-c="${c.id}" data-a="${a.id}" cx="${p[0]}" cy="${p[1]}" r="${r}" stroke-width="${2 * k}"><title>${tip}</title></circle>${unread}</g>`;
+  const tip = 'Click to close · drag to move';
+  return `<g class="${cls}">${line}<circle class="pinh i-${c.comment!.intent}${shut ? ' shut' : ''}" data-c="${c.id}" data-a="${a.id}" cx="${p[0]}" cy="${p[1]}" r="${r}" stroke-width="${2 * k}">${shut ? '' : `<title>${tip}</title>`}</circle>${unread}</g>`;
 }
 
 function outline() {
@@ -348,7 +358,7 @@ function editor(o: EdOpts) {
   const intents: Intent[] = ['change', 'question', 'bug', 'keep'];
   const tip = o.mode === 'text' ? '⌘Enter or click away to save' : 'Enter to save · Shift+Enter new line';
   box.innerHTML = (o.mode === 'comment' ? `<div class="intents">${intents.map(i => `<button class="i-${i}${i === intent ? ' on' : ''}" data-i="${i}">${i}</button>`).join('')}</div>` : '') +
-    `<textarea placeholder="${esc(o.placeholder ?? '')}"></textarea><div class="tip">${tip} · Esc cancel</div>`;
+    `<textarea placeholder="${esc(o.placeholder ?? '')}" title="${tip} · Esc cancel"></textarea>`;
   world.appendChild(box);
   const ta = box.querySelector('textarea')!;
   if (o.mode === 'line') ta.style.minHeight = '38px';
@@ -361,7 +371,10 @@ function editor(o: EdOpts) {
   });
   let closed = false;
   const close = () => { if (closed) return; closed = true; editing = false; box.remove(); };
-  const save = () => { const t = ta.value.trim(); close(); if (t || o.allowEmpty) o.onSave(t, intent); else o.onCancel?.(); };
+  let picked = false;
+  box.addEventListener('click', e => { if ((e.target as HTMLElement).dataset.i) picked = true; });
+  // A comment ending in "?" is a question unless the type was picked by hand.
+  const save = () => { const t = ta.value.trim(); close(); if (!picked && o.mode === 'comment' && t.endsWith('?')) intent = 'question'; if (t || o.allowEmpty) o.onSave(t, intent); else o.onCancel?.(); };
   ta.onkeydown = e => {
     e.stopPropagation();
     if (e.key === 'Escape') { close(); o.onCancel?.(); }
@@ -537,6 +550,21 @@ view$.addEventListener('pointerdown', e => {
     });
   }
 
+  if (tool === 'select' && t.classList.contains('ghandle')) {
+    // Scale the selection from its top-left corner: sizes and gaps together.
+    const g = groupItems(), r0 = bbox(g)!, o = new Map(g.map(i => [i.id, { x: i.x, y: i.y, w: i.w, h: i.h, section: i.section ?? null }]));
+    let k = 1;
+    return drag(p => {
+      k = Math.max(0.1, Math.max((p[0] - r0.x) / r0.w, (p[1] - r0.y) / r0.h));
+      for (const i of g) { const b = o.get(i.id)!; Object.assign(i, { x: r0.x + (b.x - r0.x) * k, y: r0.y + (b.y - r0.y) * k, w: b.w * k, h: b.h * k }); place(els.get(i.id)!, i); }
+      groupBox(); refreshSections(); drawArrows();
+    }, () => {
+      if (k === 1) return;
+      act({ op: 'batch', ops: g.map(i => ({ op: 'move', id: i.id, x: i.x, y: i.y, w: i.w, h: i.h })) },
+        { op: 'batch', ops: g.map(i => ({ op: 'move', id: i.id, ...o.get(i.id)! })) });
+    });
+  }
+
   if (tool === 'select' && hitArrow) return select(e.shiftKey ? [...sel, hitArrow] : [hitArrow]);
 
   if (tool === 'select' && it) {
@@ -555,7 +583,7 @@ view$.addEventListener('pointerdown', e => {
       if (!moved) return;
       if (resize) { const b = o.get(it.id)!; it.w = Math.max(60, b.w + dx); it.h = ar ? it.w * ar : Math.max(40, b.h + dy); place(els.get(it.id)!, it); }
       else for (const i of group) { const b = o.get(i.id)!; i.x = b.x + dx; i.y = b.y + dy; place(els.get(i.id)!, i); }
-      refreshSections(); drawArrows();
+      groupBox(); refreshSections(); drawArrows();
     }, () => {
       busy = null;
       if (!moved) return;
@@ -602,6 +630,18 @@ view$.addEventListener('pointerdown', e => {
   }
 });
 
+// Hovering a collapsed pin peeks at its comment.
+const peek = document.createElement('div'); peek.id = 'peek'; document.body.appendChild(peek);
+svg.addEventListener('pointerover', e => {
+  const t = e.target as SVGElement, c = t.classList.contains('shut') ? byId.get(t.dataset.c!) : undefined;
+  if (!c?.comment) return;
+  const v = cur(c), r = t.getBoundingClientRect();
+  peek.innerHTML = `<div class="card comment"><div class="head"><span class="chip i-${c.comment.intent}">${c.comment.intent}</span></div>${md(v.text ?? '')}` +
+    c.comment.thread.map(x => `<div class="reply"><b>${x.by === 'agent' ? 'agent' : 'you'}</b> ${md(x.text)}</div>`).join('') + '</div>';
+  Object.assign(peek.style, { display: 'block', left: r.right + 10 + 'px', top: r.top - 6 + 'px' });
+});
+svg.addEventListener('pointerout', () => (peek.style.display = 'none'));
+view$.addEventListener('pointerdown', () => (peek.style.display = 'none'), true);
 view$.addEventListener('pointermove', e => { mouse = toWorld(e.clientX, e.clientY); });
 
 view$.addEventListener('wheel', e => {
@@ -681,8 +721,25 @@ async function addFiles(files: File[], at: [number, number]) {
     at = [at[0] + 40, at[1] + 40];
   }
 }
+// Copy / paste of board items: the clipboard carries their ids; paste makes copies at the cursor.
+const CLIP = 'drawpad-items:';
+document.addEventListener('copy', e => {
+  if (editing || !board || !sel.size) return;
+  e.preventDefault(); e.clipboardData?.setData('text/plain', CLIP + board.id + ':' + [...sel].join(','));
+  hint(`Copied ${sel.size} · ⌘V to paste`);
+});
+async function pasteItems(ids: string[]) {
+  const its = ids.map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && !i.comment) as Item[];
+  const r = bbox(its); if (!r) return;
+  const res = await op({ op: 'duplicate', ids: its.map(i => i.id), dx: mouse[0] - r.x, dy: mouse[1] - r.y });
+  const keys = res.split('\n').filter(l => /^\S+ v\d/.test(l)).map(l => l.split(' ')[0]);
+  undos.push({ undo: { op: 'batch', ops: keys.map(id => ({ op: 'archive', id })) }, redo: { op: 'batch', ops: keys.map(id => ({ op: 'restore', id })) } }); redos.length = 0;
+  await load(); select(board!.items.filter(i => keys.includes(i.key)).map(i => i.id));
+}
 document.addEventListener('paste', e => {
   if (editing || !board) return;
+  const clip = e.clipboardData?.getData('text/plain') ?? '';
+  if (clip.startsWith(CLIP + board.id + ':')) { e.preventDefault(); pasteItems(clip.slice(CLIP.length + board.id.length + 1).split(',')); return; }
   const files = [...(e.clipboardData?.files ?? [])];
   if (files.length) { e.preventDefault(); addFiles(files, mouse); return; }
   const text = e.clipboardData?.getData('text/plain')?.trim();

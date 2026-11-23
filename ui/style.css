@@ -117,3 +117,9 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 #arrows .pinh.shut.i-change { fill: #f4c542; } #arrows .pinh.shut.i-bug { fill: var(--warn); }
 #arrows .pinh.shut.i-question { fill: var(--accent); } #arrows .pinh.shut.i-keep { fill: #3ecf8e; }
 #arrows .unread { fill: var(--accent); stroke: var(--bg); pointer-events: none; }
+
+.comment .x { margin-left: auto; cursor: pointer; font-size: 16px; line-height: 1; color: var(--dim); padding: 0 2px; }
+.comment .x:hover { color: var(--fg); }
+.gbox { position: absolute; outline: calc(1px * var(--inv)) solid var(--accent); pointer-events: none; z-index: 100001; }
+.gbox .handle { pointer-events: auto; }
+#peek { position: fixed; z-index: 20; max-width: 280px; pointer-events: none; display: none; }
