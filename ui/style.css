@@ -152,3 +152,4 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 .comment .reply .ed { color: var(--dim); font-size: 10px; }
 .comment .reply .icons { opacity: 0; }
 .comment .reply:hover .icons { opacity: 1; }
+.comment .chip[data-act] { cursor: pointer; }
