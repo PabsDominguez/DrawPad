@@ -18,7 +18,10 @@ let selSec: string | null = null;   // or one selected section
 let opened = new Set<string>();     // comments the human has expanded (default: collapsed to their pin)
 let busy: string | null = null; // id being dragged: live updates skip it
 let mouse: [number, number] = [0, 0];
-let space = false;              // space held = hand tool
+let space = false;
+let shift = false;              // live Shift state (snapping while drawing; pressing it mid-drag counts)
+for (const t of ['pointermove', 'pointerdown', 'keydown', 'keyup'] as const)
+  addEventListener(t, (e: PointerEvent | KeyboardEvent) => { shift = e.shiftKey; }, true);              // space held = hand tool
 const els = new Map<string, HTMLElement>();
 // Only touch the DOM when the markup changed: replacing an element mid-click swallows the click.
 const setHTML = (el: HTMLElement, html: string) => { if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; } };
@@ -610,7 +613,7 @@ view$.addEventListener('pointerdown', e => {
     return drag(p => {
       moved = true;
       const w = markPts(markHit)!, other: [number, number] = end ? [w[0], w[1]] : [w[2], w[3]];
-      const q = snap(m.shape, other, p, e.shiftKey);
+      const q = snap(m.shape, other, p, shift);
       const f = tg ? local(tg, q) : q;
       if (end) { m.pts[2] = f[0]; m.pts[3] = f[1]; } else { m.pts[0] = f[0]; m.pts[1] = f[1]; }
       drawArrows();
@@ -632,7 +635,7 @@ view$.addEventListener('pointerdown', e => {
     svg.appendChild(g);
     let end: [number, number] = start;
     return drag(p => {
-      end = snap(shape, start, p, e.shiftKey);
+      end = snap(shape, start, p, shift);
       g.innerHTML = shapeSVG(shape, [...start, ...end], 1 / view.z);
       if (!g.parentNode) svg.appendChild(g);
     }, async () => {
