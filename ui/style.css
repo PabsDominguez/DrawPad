@@ -140,3 +140,9 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 #zoom button { border: 0; background: transparent; color: var(--fg); font: inherit; padding: 5px 9px; cursor: pointer; min-width: 30px; }
 #zoom button:hover { background: var(--sec); }
 #zpct { min-width: 54px !important; font-variant-numeric: tabular-nums; }
+#view.tool-draw { cursor: crosshair; }
+#tools .tsep { width: 1px; margin: 4px 3px; background: var(--line); }
+#arrows .mhit { stroke: transparent; fill: none; pointer-events: stroke; cursor: move; }
+#arrows .mark .ar { fill: none; }
+#arrows .mark.sel .ar { stroke: var(--accent); } #arrows .mark.sel .head { fill: var(--accent); }
+#arrows .mend { fill: #fff; stroke: var(--accent); pointer-events: all; cursor: crosshair; }

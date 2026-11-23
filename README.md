@@ -42,6 +42,10 @@ Select: drag on empty canvas for a selection box (Shift adds), Shift-click to ad
 item to move them all, or its corner handle to scale them all. ⌘C / ⌘X / ⌘V copy, cut and paste items (pasted at the cursor). Zoom: bottom-right control, click the % (or ⇧0) for 100%. Comment cards keep their size at any zoom. Pan with Space-drag, the trackpad or the scroll wheel; zoom with pinch or ⌘-scroll.
 Paste an image, URL or text anywhere; drop image files; double-click empty space to write a card.
 
+Drawing: L line · A arrow · R rectangle · O ellipse; Shift snaps (45° lines, squares, circles). Drawn inside one
+screen, a shape sticks to it (moves and scales with it) and is burned into that screen's crops, so the agent
+sees it; elsewhere it sits on the canvas. Select a drawing to move it, drag its ends to adjust, ⌫ to delete.
+
 Comments: click a spot (or drag a region) on an item. A comment goes to the agent when you save it (Enter);
 there is no Send step. It then collapses to its pin; hover its pin to peek, click to open (the × icon closes it; the pencil and bin icons edit and delete it), drag to move it.
 A comment ending in "?" is sent as a question unless you picked a type.

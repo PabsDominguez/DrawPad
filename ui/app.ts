@@ -10,7 +10,9 @@ type Rect = { x: number; y: number; w: number; h: number };
 
 let board: Board | null = null;
 let view = { x: 40, y: 40, z: 0.5 };
-let tool: 'select' | 'comment' | 'frame' = 'select';
+type Shape = 'line' | 'arrow' | 'rect' | 'ellipse';
+let tool: 'select' | 'comment' | 'frame' | Shape = 'select';
+const SHAPES: string[] = ['line', 'arrow', 'rect', 'ellipse'];
 let sel = new Set<string>();        // selected item / arrow ids
 let selSec: string | null = null;   // or one selected section
 let opened = new Set<string>();     // comments the human has expanded (default: collapsed to their pin)
@@ -41,7 +43,35 @@ async function upload(blob: Blob, ext: string, prefix = 'up'): Promise<string> {
 }
 const cur = (it: Item) => it.versions[it.versions.length - 1];
 const active = () => board!.items.filter(i => i.state === 'active');
-const solid = () => active().filter(i => i.kind !== 'arrow');
+const solid = () => active().filter(i => i.kind !== 'arrow' && i.kind !== 'mark');
+// A drawing's ends in world coords (null when the item it is drawn on is gone).
+function markPts(m: Item): [number, number, number, number] | null {
+  const k = m.mark!, p = k.pts;
+  if (!k.on) return p;
+  const t = byId.get(k.on);
+  if (!t || t.state !== 'active') return null;
+  return [t.x + p[0] * t.w, t.y + p[1] * t.h, t.x + p[2] * t.w, t.y + p[3] * t.h];
+}
+const markRect = (p: number[]): Rect => ({ x: Math.min(p[0], p[2]), y: Math.min(p[1], p[3]), w: Math.abs(p[2] - p[0]), h: Math.abs(p[3] - p[1]) });
+function shapeSVG(shape: string, p: number[], k: number, cls = '', id = ''): string {
+  const r = markRect(p), w = 2 * k, d = id ? ` data-id="${id}"` : '';
+  const body = shape === 'arrow' ? arrowPath([p[0], p[1]], [p[2], p[3]])
+    : shape === 'line' ? `<path class="ar" stroke-width="${w}" d="M${p[0]},${p[1]}L${p[2]},${p[3]}"/>`
+    : shape === 'rect' ? `<rect class="ar" stroke-width="${w}" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" rx="${3 * k}"/>`
+    : `<ellipse class="ar" stroke-width="${w}" cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"/>`;
+  const hit = !id ? '' : shape === 'line' || shape === 'arrow' ? `<path class="mhit"${d} stroke-width="${12 * k}" d="M${p[0]},${p[1]}L${p[2]},${p[3]}"/>`
+    : shape === 'rect' ? `<rect class="mhit"${d} stroke-width="${12 * k}" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"/>`
+    : `<ellipse class="mhit"${d} stroke-width="${12 * k}" cx="${r.x + r.w / 2}" cy="${r.y + r.h / 2}" rx="${r.w / 2}" ry="${r.h / 2}"/>`;
+  return `<g class="mark ${cls}">${body}${hit}</g>`;
+}
+// Shift: lines snap to 45° steps, boxes to squares / circles.
+function snap(shape: string, a: [number, number], b: [number, number], on: boolean): [number, number] {
+  if (!on) return b;
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  if (shape === 'rect' || shape === 'ellipse') { const m = Math.max(Math.abs(dx), Math.abs(dy)); return [a[0] + Math.sign(dx || 1) * m, a[1] + Math.sign(dy || 1) * m]; }
+  const ang = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4), len = Math.hypot(dx, dy);
+  return [a[0] + Math.cos(ang) * len, a[1] + Math.sin(ang) * len];
+}
 
 // ---------- undo / redo (the human's own actions) ----------
 const undos: { undo: Op; redo: Op }[] = [], redos: { undo: Op; redo: Op }[] = [];
@@ -230,7 +260,7 @@ function render() {
 // Text cards grow to their content; the real height goes back to the server so placement stays honest.
 // Several items selected: one box around them with a corner handle that scales them all.
 const gbox = document.createElement('div'); gbox.className = 'gbox'; gbox.innerHTML = '<div class="handle ghandle" title="Drag to resize the selection"></div>';
-const groupItems = () => [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && i.state === 'active' && !closed(i)) as Item[];
+const groupItems = () => [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && i.kind !== 'mark' && i.state === 'active' && !closed(i)) as Item[];
 function groupBox() {
   const g = groupItems(), r = g.length > 1 ? bbox(g) : null;
   if (!r) return gbox.remove();
@@ -271,6 +301,12 @@ function drawArrows() {
   if (!board) return;
   const k = 1 / view.z;
   let html = '';
+  for (const m of active()) {
+    if (m.kind !== 'mark') continue;
+    const p = markPts(m); if (!p) continue;
+    html += shapeSVG(m.mark!.shape, p, k, sel.has(m.id) ? 'sel' : '', m.id);
+    if (sel.has(m.id) && sel.size === 1) html += `<circle class="mend" data-id="${m.id}" data-end="0" cx="${p[0]}" cy="${p[1]}" r="${5 * k}" stroke-width="${1.5 * k}"/><circle class="mend" data-id="${m.id}" data-end="1" cx="${p[2]}" cy="${p[3]}" r="${5 * k}" stroke-width="${1.5 * k}"/>`;
+  }
   for (const a of active()) {
     if (a.kind !== 'arrow') continue;
     const f = byId.get(a.from!), t = byId.get(a.to!);
@@ -334,7 +370,7 @@ function selbar() {
   if (!its.length) return setHTML(s, '');
   const one = its.length === 1 ? its[0] : undefined;
   setHTML(s, (one ? `<code title="Click to copy, then mention it in chat">${esc(one.key)}</code>` : `<span>${its.length} selected</span>`) +
-    (its.some(i => i.kind !== 'arrow') ? '<button data-bar="frame" title="Put the selection in a new frame">Frame</button>' : '') +
+    (its.some(i => i.kind !== 'arrow' && i.kind !== 'mark') ? '<button data-bar="frame" title="Put the selection in a new frame">Frame</button>' : '') +
     '<button data-bar="delete" title="⌫ · ⌘Z brings it back">Delete</button>');
 }
 
@@ -350,6 +386,8 @@ function setTool(t: typeof tool) {
   view$.classList.toggle('tool-comment', t === 'comment' || t === 'frame');
   if (t === 'comment') hint('Comment: click a spot or drag a region on an item');
   if (t === 'frame') hint('Frame: drag out a box; what is inside joins it');
+  if (SHAPES.includes(t)) hint('Drag to draw · Shift snaps · drawn on a screen, it moves with it and the agent sees it');
+  view$.classList.toggle('tool-draw', SHAPES.includes(t));
 }
 function select(ids: string[] = [], sec: string | null = null) { sel = new Set(ids); selSec = sec; render(); }
 
@@ -410,7 +448,7 @@ function renameInline(el: HTMLElement, s: Section) {
 }
 
 // ---------- crops ----------
-async function makeCrop(it: Item, point: [number, number], region?: [number, number, number, number]): Promise<string | undefined> {
+async function makeCrop(it: Item, point?: [number, number], region?: [number, number, number, number], extra?: { shape: string; pts: number[] }): Promise<string | undefined> {
   const v = cur(it);
   if (it.kind !== 'image' || !v.asset) return;
   const img = new Image(); img.src = '/a/' + v.asset; await img.decode();
@@ -426,8 +464,22 @@ async function makeCrop(it: Item, point: [number, number], region?: [number, num
   const g = c.getContext('2d')!;
   g.drawImage(img, cx, cy, cw, ch, 0, 0, c.width, c.height);
   g.strokeStyle = '#ff2d20'; g.lineWidth = Math.max(3, c.width / 150);
+  // The human's drawings on this image are part of what they're showing.
+  const X = (f: number) => (f * W - cx) * s, Y = (f: number) => (f * H - cy) * s;
+  const drawn = active().filter(m => m.mark?.on === it.id).map(m => m.mark!) as { shape: string; pts: number[] }[];
+  for (const m of extra ? [...drawn, extra] : drawn) {
+    const [x1, y1, x2, y2] = [X(m.pts[0]), Y(m.pts[1]), X(m.pts[2]), Y(m.pts[3])];
+    g.beginPath();
+    if (m.shape === 'rect') g.rect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+    else if (m.shape === 'ellipse') g.ellipse((x1 + x2) / 2, (y1 + y2) / 2, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2, 0, 0, Math.PI * 2);
+    else {
+      g.moveTo(x1, y1); g.lineTo(x2, y2);
+      if (m.shape === 'arrow') { const a = Math.atan2(y2 - y1, x2 - x1), h = g.lineWidth * 4; g.moveTo(x2, y2); g.lineTo(x2 - h * Math.cos(a - 0.45), y2 - h * Math.sin(a - 0.45)); g.moveTo(x2, y2); g.lineTo(x2 - h * Math.cos(a + 0.45), y2 - h * Math.sin(a + 0.45)); }
+    }
+    g.stroke();
+  }
   if (region) g.strokeRect((region[0] * W - cx) * s, (region[1] * H - cy) * s, region[2] * W * s, region[3] * H * s);
-  else {
+  else if (point) {
     const px = point[0] * W * s, py = point[1] * H * s, r = Math.max(10, c.width / 28);
     g.beginPath(); g.arc(px, py, r, 0, Math.PI * 2); g.stroke();
     g.beginPath(); g.moveTo(px - r * 1.8, py); g.lineTo(px - r * 0.5, py); g.moveTo(px + r * 0.5, py); g.lineTo(px + r * 1.8, py);
@@ -462,6 +514,34 @@ const norm = (a: [number, number], b: [number, number]): Rect => ({ x: Math.min(
 const inside = (i: Rect, r: Rect) => i.x >= r.x && i.y >= r.y && i.x + i.w <= r.x + r.w && i.y + i.h <= r.y + r.h;
 const touches = (i: Rect, r: Rect) => i.x < r.x + r.w && r.x < i.x + i.w && i.y < r.y + r.h && r.y < i.y + i.h;
 
+// Drags everything selected: items, and drawings that aren't stuck to an item (those follow their item).
+function moveSelection(start: [number, number]) {
+  const group = [...sel].map(id => byId.get(id)).filter(i => i && i.state === 'active' && i.kind !== 'arrow' && i.kind !== 'mark') as Item[];
+  const free = [...sel].map(id => byId.get(id)).filter(i => i?.mark && !i.mark.on) as Item[];
+  const o = new Map(group.map(i => [i.id, { x: i.x, y: i.y, w: i.w, h: i.h, section: i.section ?? null }]));
+  const om = new Map(free.map(m => [m.id, [...m.mark!.pts]]));
+  const attached = [...sel].map(id => byId.get(id)).filter(i => i?.mark?.on && !sel.has(i.mark.on)) as Item[];
+  const oa = new Map(attached.map(m => [m.id, [...m.mark!.pts]]));
+  const busyIds = group.map(i => i.id); if (busyIds.length) busy = busyIds[0];
+  let moved = false, d: [number, number] = [0, 0];
+  drag(p => {
+    d = [p[0] - start[0], p[1] - start[1]];
+    moved = moved || Math.abs(d[0]) + Math.abs(d[1]) > 2 / view.z;
+    if (!moved) return;
+    for (const i of group) { const b = o.get(i.id)!; i.x = b.x + d[0]; i.y = b.y + d[1]; place(els.get(i.id)!, i); }
+    for (const m of free) { const b = om.get(m.id)!; m.mark!.pts = [b[0] + d[0], b[1] + d[1], b[2] + d[0], b[3] + d[1]]; }
+    for (const m of attached) { const b = oa.get(m.id)!, t = byId.get(m.mark!.on!)!, fx = d[0] / t.w, fy = d[1] / t.h; m.mark!.pts = [b[0] + fx, b[1] + fy, b[2] + fx, b[3] + fy]; }
+    groupBox(); refreshSections(); drawArrows();
+  }, async () => {
+    busy = null;
+    if (!moved) return;
+    const crops = new Map<string, string | undefined>();
+    for (const m of attached) if (!crops.has(m.mark!.on!)) crops.set(m.mark!.on!, await makeCrop(byId.get(m.mark!.on!)!).catch(() => undefined));
+    act({ op: 'batch', ops: [...group.map(i => ({ op: 'move', id: i.id, x: i.x, y: i.y })), ...[...free, ...attached].map(m => ({ op: 'remark', id: m.id, pts: m.mark!.pts, crop: m.mark!.on ? crops.get(m.mark!.on) : undefined }))] },
+      { op: 'batch', ops: [...group.map(i => ({ op: 'move', id: i.id, ...o.get(i.id)! })), ...free.map(m => ({ op: 'remark', id: m.id, pts: om.get(m.id) })), ...attached.map(m => ({ op: 'remark', id: m.id, pts: oa.get(m.id) }))] });
+  });
+}
+
 // Draws a box in world space; calls done with it (null for a plain click).
 function rubber(start: [number, number], cls: string, done: (r: Rect | null) => void, live?: (r: Rect) => void) {
   const box = document.createElement('div'); box.className = cls; world.appendChild(box);
@@ -481,7 +561,7 @@ async function makeFrame(f: { title?: string; x: number; y: number; w?: number; 
   hint('Frame created · double-click its title to rename');
 }
 function frameSelection() {
-  const its = [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow') as Item[];
+  const its = [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && i.kind !== 'mark') as Item[];
   const r = bbox(its); if (!r) return;
   makeFrame({ x: r.x, y: r.y, w: r.w + 2 * PAD, h: r.h + 2 * PAD, ids: its.map(i => i.id) });
 }
@@ -519,6 +599,52 @@ view$.addEventListener('pointerdown', e => {
       if (!moved) return toggleOpen(pinOf);
       const crop = await makeCrop(target, point, region).catch(() => undefined);
       act({ op: 'repin', id: pinOf.id, point, region, crop }, { op: 'repin', id: pinOf.id, point: old.point, region: old.region, crop: old.crop });
+    });
+  }
+
+  const markHit = (t.classList.contains('mhit') || t.classList.contains('mend')) ? byId.get(t.dataset.id!) : undefined;
+  if (tool === 'select' && markHit?.mark && t.classList.contains('mend')) {
+    // Drag one end of the selected drawing.
+    const m = markHit.mark, old = [...m.pts] as typeof m.pts, end = Number(t.dataset.end), tg = m.on ? byId.get(m.on)! : undefined;
+    let moved = false;
+    return drag(p => {
+      moved = true;
+      const w = markPts(markHit)!, other: [number, number] = end ? [w[0], w[1]] : [w[2], w[3]];
+      const q = snap(m.shape, other, p, e.shiftKey);
+      const f = tg ? local(tg, q) : q;
+      if (end) { m.pts[2] = f[0]; m.pts[3] = f[1]; } else { m.pts[0] = f[0]; m.pts[1] = f[1]; }
+      drawArrows();
+    }, async () => {
+      if (!moved) return;
+      const pts = [...m.pts], crop = tg ? await makeCrop(tg).catch(() => undefined) : undefined;
+      act({ op: 'remark', id: markHit.id, pts, crop }, { op: 'remark', id: markHit.id, pts: old });
+    });
+  }
+  if (tool === 'select' && markHit) {
+    if (e.shiftKey) { const n = new Set(sel); if (n.has(markHit.id)) n.delete(markHit.id); else n.add(markHit.id); return select([...n]); }
+    if (!sel.has(markHit.id)) select([markHit.id]);
+    return moveSelection(start);
+  }
+
+  if (SHAPES.includes(tool)) {
+    // Draw. Inside one image it sticks to that image (and shows in its crops); otherwise it sits on the canvas.
+    const shape = tool as Shape, g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(g);
+    let end: [number, number] = start;
+    return drag(p => {
+      end = snap(shape, start, p, e.shiftKey);
+      g.innerHTML = shapeSVG(shape, [...start, ...end], 1 / view.z);
+      if (!g.parentNode) svg.appendChild(g);
+    }, async () => {
+      g.remove(); setTool('select');
+      if (Math.hypot(end[0] - start[0], end[1] - start[1]) * view.z < 6) return hint('Drag to draw');
+      const under = (q: [number, number]) => solid().find(i => i.kind === 'image' && q[0] >= i.x && q[0] <= i.x + i.w && q[1] >= i.y && q[1] <= i.y + i.h);
+      const on = under(start) && under(start) === under(end) ? under(start) : undefined;
+      const pts = on ? [...local(on, start), ...local(on, end)] : [...start, ...end];
+      const crop = on ? await makeCrop(on, undefined, undefined, { shape, pts }).catch(() => undefined) : undefined;
+      const res = await op({ op: 'mark', shape, pts, on: on?.id, crop });
+      const key = res.split(' ')[0];
+      undos.push({ undo: { op: 'archive', id: key }, redo: { op: 'restore', id: key } }); redos.length = 0;
     });
   }
 
@@ -581,7 +707,8 @@ view$.addEventListener('pointerdown', e => {
     // Shift-click toggles; dragging moves the whole selection.
     if (e.shiftKey) { const n = new Set(sel); if (n.has(it.id)) n.delete(it.id); else n.add(it.id); return select([...n]); }
     if (!sel.has(it.id)) select([it.id]);
-    const group = [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && i.state === 'active') as Item[];
+    if (!t.classList.contains('handle')) return moveSelection(start);
+    const group = [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && i.kind !== 'mark' && i.state === 'active') as Item[];
     const o = new Map(group.map(i => [i.id, { x: i.x, y: i.y, w: i.w, h: i.h, section: i.section ?? null }]));
     const resize = t.classList.contains('handle') && group.length === 1;
     const ar = it.kind === 'image' ? it.h / it.w : 0;
@@ -606,7 +733,8 @@ view$.addEventListener('pointerdown', e => {
   if (tool === 'select') {
     // Empty canvas: drag a selection box (Shift adds to the selection).
     const base = e.shiftKey ? [...sel] : [];
-    const pick = (r: Rect) => [...new Set([...base, ...visible().filter(i => touches(i, r)).map(i => i.id)])];
+    const pick = (r: Rect) => [...new Set([...base, ...visible().filter(i => touches(i, r)).map(i => i.id),
+      ...active().filter(m => m.mark && markPts(m) && touches(markRect(markPts(m)!), r)).map(m => m.id)])];
     // A click on a frame's empty area selects the frame.
     const inFrame = () => board!.sections.map(x => ({ x, r: sectionRect(x) })).filter(({ r }) => touches({ x: start[0], y: start[1], w: 0.01, h: 0.01 }, r))
       .sort((p, q) => p.r.w * p.r.h - q.r.w * q.r.h)[0]?.x.id ?? null;
@@ -748,7 +876,7 @@ document.addEventListener('cut', e => {
   deleteSelection(); hint('Cut · ⌘V to paste');
 });
 async function pasteItems(ids: string[]) {
-  const its = ids.map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && !i.comment) as Item[];
+  const its = ids.map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && i.kind !== 'mark' && !i.comment) as Item[];
   const r = bbox(its); if (!r) return;
   const res = await op({ op: 'duplicate', ids: its.map(i => i.id), dx: mouse[0] - r.x, dy: mouse[1] - r.y });
   const keys = res.split('\n').filter(l => /^\S+ v\d/.test(l)).map(l => l.split(' ')[0]);
@@ -783,6 +911,10 @@ document.addEventListener('keydown', e => {
   else if (k === 'v') setTool('select');
   else if (k === 'c') setTool('comment');
   else if (k === 'f') setTool('frame');
+  else if (k === 'l') setTool('line');
+  else if (k === 'a') setTool('arrow');
+  else if (k === 'r') setTool('rect');
+  else if (k === 'o') setTool('ellipse');
   else if (k === 'escape') { setTool('select'); select(); }
   else if (k === 'backspace' || k === 'delete') deleteSelection();
 });

@@ -6,7 +6,7 @@ export const GAP = 40, PAD = 40, SECTION_GAP = 160, ROW_MAX = 3600;
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface PlaceOpts { at?: [number, number]; below?: Item; rightOf?: Item; inRowWith?: Item; flow?: 'right' | 'down' }
 
-export const solid = (b: Board) => b.items.filter(i => i.state === 'active' && i.kind !== 'arrow');
+export const solid = (b: Board) => b.items.filter(i => i.state === 'active' && i.kind !== 'arrow' && i.kind !== 'mark');
 const members = (b: Board, s: Section) => solid(b).filter(i => i.section === s.id);
 
 // Box = members (comments float, they don't stretch it), and at least the drawn frame.

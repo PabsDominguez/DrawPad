@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Board, By, Intent, Item, Section, Source, Version } from './types.ts';
+import type { Board, By, Intent, Item, Mark, Section, Source, Version } from './types.ts';
 import { ensureDirs, paths, writeAtomic } from './project.ts';
 import { imageSize, makeThumb } from './images.ts';
 import { GAP, PAD, SECTION_GAP, contentBottom, imageBox, moveSection, place, sectionRect, solid, textHeight } from './layout.ts';
@@ -204,9 +204,32 @@ export class Store {
   duplicate(ids: string[], dx: number, dy: number): string {
     return ids.map(id => this.find(id)).filter(it => it.kind !== 'arrow' && !it.comment).map(it => {
       const v = it.versions[it.versions.length - 1];
+      if (it.kind === 'mark') return '';
       return this.add({ kind: it.kind as 'image' | 'text' | 'link', by: 'human', at: [it.x + dx, it.y + dy], width: it.w, height: it.h, title: it.title,
         text: v.text, url: v.url, path: v.asset ? path.join(this.p.assets, v.asset) : undefined });
     }).join('\n');
+  }
+
+  // The human's drawings (lines, arrows, boxes, ellipses).
+  mark(a: { shape: Mark['shape']; pts: Mark['pts']; on?: string; crop?: string; by?: By }): string {
+    const rev = this.bump(), n = this.nid(), by = a.by ?? 'human';
+    const it: Item = { id: `i${n}`, key: `m-${n}`, kind: 'mark', x: 0, y: 0, w: 0, h: 0, z: n, state: 'active', versions: [{ v: 1, at: now() }],
+      createdBy: by, round: this.board.round, createdAt: now(), rev, seenByHuman: by === 'human', mark: { shape: a.shape, pts: a.pts } };
+    if (a.on) it.mark!.on = this.find(a.on).id;
+    if (a.crop) it.mark!.crop = path.basename(a.crop);
+    if (by === 'human') this.fromHuman(it, rev);
+    this.board.items.push(it); this.save();
+    return `${it.key} ${a.shape}`;
+  }
+  remark(ref: string, pts: Mark['pts'], crop?: string): string {
+    const it = this.find(ref);
+    if (!it.mark) throw new Error(`${it.key} is not a drawing`);
+    const rev = this.bump();
+    it.mark.pts = pts; it.rev = rev;
+    if (crop) it.mark.crop = path.basename(crop);
+    if (it.createdBy === 'human') this.fromHuman(it, rev);
+    this.save();
+    return `${it.key} moved`;
   }
 
   // A frame the human drew (or the undo of removing one): explicit box, adopts the given items in place.
@@ -431,15 +454,15 @@ export class Store {
 
   // Counts of sent-but-undelivered feedback.
   pending() {
-    let comments = 0, items = 0, reactions = 0, replies = 0;
+    let comments = 0, items = 0, marks = 0, reactions = 0, replies = 0;
     for (const it of this.board.items) {
       if (it.createdBy === 'human' && it.sent !== undefined && !it.delivered && it.state === 'active') {
-        if (it.comment) comments++; else if (it.kind !== 'arrow') items++;
+        if (it.comment) comments++; else if (it.kind === 'mark') marks++; else if (it.kind !== 'arrow') items++;
       }
       if (it.reaction?.sent !== undefined && !it.reaction.delivered) reactions++;
       for (const t of it.comment?.thread ?? []) if (t.by === 'human' && t.sent !== undefined && !t.delivered) replies++;
     }
-    return { comments, items, reactions, replies, total: comments + items + reactions + replies };
+    return { comments, items, marks, reactions, replies, total: comments + items + marks + reactions + replies };
   }
 
   decisions(last = 3): string[] {

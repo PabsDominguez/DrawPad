@@ -1,6 +1,6 @@
 // Shared data model for board.json (see SPEC.md section 3).
 
-export type Kind = 'image' | 'text' | 'link' | 'arrow';
+export type Kind = 'image' | 'text' | 'link' | 'arrow' | 'mark';
 export type By = 'agent' | 'human';
 export type Intent = 'change' | 'question' | 'keep' | 'bug';
 
@@ -30,6 +30,9 @@ export interface Comment {
   artifact?: string;        // key the agent named when marking done
 }
 
+// The human's drawings. On an item (on = its id): pts are 0..1 of that item and move with it. Otherwise world coords.
+export interface Mark { shape: 'line' | 'arrow' | 'rect' | 'ellipse'; pts: [number, number, number, number]; on?: string; crop?: string }
+
 export interface Reaction { kind: 'approve' | 'reject'; reason?: string; version: number; sent?: number; delivered?: boolean }
 
 export interface Item {
@@ -51,6 +54,7 @@ export interface Item {
   delivered?: boolean;    // human items: reported to the agent by `feedback`
   color?: string;
   comment?: Comment;
+  mark?: Mark;
   // arrows
   from?: string;
   to?: string;
