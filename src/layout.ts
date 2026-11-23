@@ -1,7 +1,7 @@
 import type { Board, Item, Section } from './types.ts';
 
 // Semantic placement: callers name an anchor or a section, never coordinates.
-export const GAP = 40, PAD = 24, SECTION_GAP = 160, ROW_MAX = 3600;
+export const GAP = 40, PAD = 40, SECTION_GAP = 160, ROW_MAX = 3600;
 
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface PlaceOpts { at?: [number, number]; below?: Item; rightOf?: Item; inRowWith?: Item; flow?: 'right' | 'down' }

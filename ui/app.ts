@@ -1,7 +1,7 @@
 // DrawPad board UI: custom minimal canvas (transformed div + one SVG layer for arrows and pins).
 import type { Board, Item, Intent, Section } from '../src/types.ts';
 
-const PAD = 24, THUMB_W = 640;
+const PAD = 40, THUMB_W = 640;
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 const view$ = $('#view'), world = $('#world'), svg = document.querySelector('#arrows') as SVGSVGElement;
 
@@ -79,12 +79,17 @@ function applyView() {
   world.classList.toggle('far', view.z < 0.22);
   view$.style.backgroundSize = `${24 * view.z}px ${24 * view.z}px`;
   view$.style.backgroundPosition = `${view.x}px ${view.y}px`;
+  $('#zpct').textContent = Math.round(view.z * 100) + '%';
   cull();
   drawArrows();
   saveView();
   markSeenSoon();
 }
 let saveT = 0;
+function zoomTo(z: number) {
+  const cx = view$.clientWidth / 2, cy = view$.clientHeight / 2, wx = (cx - view.x) / view.z, wy = (cy - view.y) / view.z;
+  view = { z, x: cx - wx * z, y: cy - wy * z }; applyView();
+}
 function saveView() { clearTimeout(saveT); saveT = window.setTimeout(() => board && localStorage.setItem('view-' + board.id, JSON.stringify(view)), 300); }
 
 function toWorld(cx: number, cy: number): [number, number] {
@@ -173,12 +178,13 @@ function content(it: Item): string {
     const thread = c.thread.map(t => `<div class="reply"><b>${t.by === 'agent' ? 'agent' : 'you'}</b> ${md(t.text)}</div>`).join('');
     const mine = it.createdBy === 'human';
     const close = `<span class="icons">${mine ? `<span class="ic" data-act="edit" title="Edit"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span>` : ''}<span class="ic" data-act="delete" title="Delete (⌘Z brings it back)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span>${pinArrow(it) ? `<span class="ic" data-act="close" title="Close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ''}</span>`;
-    const acts = c.status !== 'resolved'
-      ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}</div>`
-      : `<div class="acts"><button data-act="reopen">Reopen</button></div>`;
     const state = c.status === 'open' ? (it.delivered || !mine ? 'open' : 'waiting for agent') : c.status;
+    const st = `<span class="st s-${c.status}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span>`;
+    const acts = c.status !== 'resolved'
+      ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}${st}</div>`
+      : `<div class="acts"><button data-act="reopen">Reopen</button>${st}</div>`;
     return `<div class="card comment${c.status === 'resolved' ? ' done' : ''}"><div class="head"><span class="chip i-${c.intent}"${mine ? ' data-act="intent" title="Click to change"' : ''}>${c.intent}</span>` +
-      `<span class="s-${c.status}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span>${close}</div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
+      `${close}</div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
   }
   return `<div class="card" style="height:100%">${md(v.text ?? '')}</div>${it.title ? label(it.title) : ''}${dot}${react}`;
 }
@@ -193,10 +199,10 @@ function render() {
     const on = sel.has(it.id), one = on && sel.size === 1;
     const state = `${it.rev}${on}${one}`;
     if (el.dataset.state !== state) {
-      el.innerHTML = content(it) + (one ? '<div class="handle"></div>' : '');
+      el.innerHTML = content(it) + (one && !it.comment ? '<div class="handle"></div>' : '');
       el.dataset.state = state;
     }
-    el.className = `item ${it.kind}${on ? ' sel' : ''}${closed(it) ? ' closed' : ''}`;
+    el.className = `item ${it.kind}${it.comment ? ' cm' : ''}${on ? ' sel' : ''}${closed(it) ? ' closed' : ''}`;
     if (busy !== it.id) place(el, it);
   }
   for (const [id, el] of els) if (!live.has(id)) { el.remove(); els.delete(id); }
@@ -281,6 +287,7 @@ function drawArrows() {
 
 // Comment → pin: a dashed elbow line from the card's facing side; collapsed comments show only the pin.
 function commentLink(c: Item, a: Item, p: [number, number], k: number): string {
+  c = { ...c, w: c.w * k, h: c.h * k }; // comment cards keep their screen size at any zoom
   const shut = closed(c), cls = `clink${sel.has(c.id) ? ' sel' : ''}${c.comment!.status === 'resolved' ? ' done' : ''}`;
   let line = '';
   if (!shut) {
@@ -354,7 +361,7 @@ function editor(o: EdOpts) {
   editing = true;
   let intent: Intent = 'change';
   const box = document.createElement('div');
-  box.className = 'editor';
+  box.className = 'editor' + (o.mode === 'text' ? '' : ' fixed');
   Object.assign(box.style, { left: o.x + 'px', top: o.y + 'px', width: Math.max(o.w, 240) + 'px' });
   const intents: Intent[] = ['change', 'question', 'bug', 'keep'];
   const tip = o.mode === 'text' ? '⌘Enter or click away to save' : 'Enter to save · Shift+Enter new line';
@@ -489,7 +496,7 @@ view$.addEventListener('pointerdown', e => {
   if (!board || e.button > 1) return;
   if (space || e.button === 1) { e.preventDefault(); return pan(e); }
   const t = e.target as HTMLElement;
-  if (t.closest('.editor, #tools, a, button, [data-act], [contenteditable="true"]')) return;
+  if (t.closest('.editor, #tools, #zoom, a, button, [data-act], [contenteditable="true"]')) return;
   const start = toWorld(e.clientX, e.clientY);
   const it = itemAt(e);
   const hitArrow = t.classList.contains('hit') ? t.dataset.id! : null;
@@ -735,6 +742,11 @@ document.addEventListener('copy', e => {
   e.preventDefault(); e.clipboardData?.setData('text/plain', CLIP + board.id + ':' + [...sel].join(','));
   hint(`Copied ${sel.size} · ⌘V to paste`);
 });
+document.addEventListener('cut', e => {
+  if (editing || !board || !sel.size) return;
+  e.preventDefault(); e.clipboardData?.setData('text/plain', CLIP + board.id + ':' + [...sel].join(','));
+  deleteSelection(); hint('Cut · ⌘V to paste');
+});
 async function pasteItems(ids: string[]) {
   const its = ids.map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && !i.comment) as Item[];
   const r = bbox(its); if (!r) return;
@@ -767,6 +779,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && k === 'a') { e.preventDefault(); select(visible().map(i => i.id)); return; }
   if (e.metaKey || e.ctrlKey) return;
   if (e.shiftKey && e.code === 'Digit1') fitAll();
+  else if (e.shiftKey && e.code === 'Digit0') zoomTo(1);
   else if (k === 'v') setTool('select');
   else if (k === 'c') setTool('comment');
   else if (k === 'f') setTool('frame');
@@ -777,6 +790,9 @@ document.addEventListener('keyup', e => { if (e.key === ' ') { space = false; vi
 addEventListener('blur', () => { space = false; view$.classList.remove('hand'); });
 document.querySelectorAll<HTMLElement>('[data-tool]').forEach(b => (b.onclick = () => setTool(b.dataset.tool as typeof tool)));
 $('#fit').onclick = fitAll;
+$('#zpct').onclick = () => zoomTo(1);
+$('#zin').onclick = () => zoomTo(Math.min(4, view.z * 1.25));
+$('#zout').onclick = () => zoomTo(Math.max(0.03, view.z / 1.25));
 $('#theme').onclick = () => {
   const light = document.body.classList.toggle('light'); document.body.classList.toggle('dark', !light);
   localStorage.setItem('theme', light ? 'light' : 'dark');

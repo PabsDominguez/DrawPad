@@ -39,7 +39,7 @@ V select · C comment · F frame · Space hand · ⇧1 fit all · Esc · ⌫ del
 ⌘Z undo · ⇧⌘Z redo · double-click a section title to rename it.
 
 Select: drag on empty canvas for a selection box (Shift adds), Shift-click to add/remove, drag any selected
-item to move them all, or its corner handle to scale them all. ⌘C / ⌘V copies items (pasted at the cursor). Pan with Space-drag, the trackpad or the scroll wheel; zoom with pinch or ⌘-scroll.
+item to move them all, or its corner handle to scale them all. ⌘C / ⌘X / ⌘V copy, cut and paste items (pasted at the cursor). Zoom: bottom-right control, click the % (or ⇧0) for 100%. Comment cards keep their size at any zoom. Pan with Space-drag, the trackpad or the scroll wheel; zoom with pinch or ⌘-scroll.
 Paste an image, URL or text anywhere; drop image files; double-click empty space to write a card.
 
 Comments: click a spot (or drag a region) on an item. A comment goes to the agent when you save it (Enter);

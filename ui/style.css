@@ -130,3 +130,13 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 #tools button { display: flex; padding: 6px; border: 0; border-radius: 7px; background: transparent; color: var(--fg); cursor: pointer; }
 #tools button:hover { background: var(--sec); }
 #tools button.on { background: var(--accent); color: #fff; }
+
+.comment .st { margin-left: auto; align-self: center; color: var(--dim); font-size: 11px; }
+.comment .acts { align-items: center; }
+.item.cm { transform-origin: 0 0; transform: scale(var(--inv)); height: auto !important; }
+.item.cm.sel { outline-width: 2px; outline-offset: 2px; }
+.editor.fixed { transform-origin: 0 0; transform: scale(var(--inv)); }
+#zoom { position: absolute; right: 12px; bottom: 16px; display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+#zoom button { border: 0; background: transparent; color: var(--fg); font: inherit; padding: 5px 9px; cursor: pointer; min-width: 30px; }
+#zoom button:hover { background: var(--sec); }
+#zpct { min-width: 54px !important; font-variant-numeric: tabular-nums; }
