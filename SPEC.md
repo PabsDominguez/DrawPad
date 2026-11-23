@@ -1,6 +1,11 @@
 # DrawPad: a visual working space for building apps with an AI agent
 
-Status: draft v4, 2026-11-23.
+Status: draft v5, 2026-11-23. Step 1 is built and in daily use (Liftor); step 2 (mockups) is next.
+See "Status" at the end for what exists today.
+v5 changes: human drawing tools (line, arrow, rect, ellipse; Shift snaps; drawn on a screen they stick to it
+and show in its crops); text tool (T); comment threads with editable / deletable replies written in place;
+comment cards keep screen size at any zoom; copy/cut/paste (single image or text also to other apps);
+group resize; zoom control with 100%; comment type auto-set to question when it ends in "?".
 v4 changes (Pablo's second pass): human-drawn frames (F, or Frame on a selection) with an explicit box;
 an item dropped outside a drawn frame leaves it; selection box on empty canvas, Shift-click multi-select,
 group move and delete as one undo step; comments collapse to their pin after saving (click to open);
@@ -310,3 +315,22 @@ Git-friendly. Writes are atomic. A single tool install serves many projects (eac
 
 ## 10. Open questions
 1. Whether to track the agent's own session/branch on each round (useful when several agents work).
+
+## Status (2026-11-23)
+
+Built (step 1 plus Pablo's feedback rounds):
+- Canvas: pan (Space, trackpad, wheel), zoom (pinch, ⌘-scroll, bottom-right control), fit (⇧1), 100% (⇧0).
+- Items: images (paste, drop, agent), text cards and the text tool, links. Undo/redo of all human actions.
+- Selection: box select, Shift-click, ⌘A; move, scale and delete groups; copy/cut/paste.
+- Frames/sections: drawn frames (F) or Frame on a selection; move by title, resize from the corner.
+- Comments: pin or region, type (change/question/bug/keep), collapse to pin, hover peek, threads with
+  editable replies, resolve; crops (whole image with pin, or region) include the human's drawings.
+- Drawings: line, arrow, rectangle, ellipse (agent sees them as one line of text each, plus a crop).
+- Agent: `add` (upsert by key, versions), `--many`, `board`, `feedback`, `reply`, `done`, `drop`, `section`,
+  `move`, `archive/restore`, `capture sim`, `hook`, `wait`, `stats`; launcher app; one window per board.
+
+Not built yet: mockups (step 2), option sets with picks (Approve/Reject is hidden in the UI until then),
+`shot board`, version stepper, `capture url`. Deferred until needed: a comments overview panel.
+
+Sharing later: replace `sips` with JS image sizing and browser thumbnails (cross-platform), publish to npm,
+package hook + a skill as a Claude Code plugin, add a licence.

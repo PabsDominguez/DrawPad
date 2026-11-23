@@ -12,7 +12,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit -p .",
-    "test": "node --disable-warning=ExperimentalWarning --test test/"
+    "test:ui": "node --disable-warning=ExperimentalWarning test/ui.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
