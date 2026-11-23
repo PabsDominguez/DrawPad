@@ -81,7 +81,7 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 .pin { position: absolute; width: 14px; height: 14px; border-radius: 7px; background: var(--warn); border: 2px solid #fff;
   transform-origin: 0 0; transform: scale(var(--inv)) translate(-50%, -50%); pointer-events: none; }
 
-.editor { position: absolute; z-index: 100001; background: var(--note); border: 2px solid var(--accent); border-radius: 7px; padding: 6px; }
+.editor { position: absolute; z-index: 100001; background: var(--card); border: 1.5px solid var(--accent); border-radius: 10px; padding: 8px 11px; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
 .editor textarea { width: 100%; min-height: 38px; resize: none; overflow: hidden; border: 0; outline: 0; background: transparent; color: var(--fg); font: 13px/19px -apple-system, system-ui, sans-serif; }
 .editor .intents { display: flex; gap: 4px; margin-bottom: 4px; }
 .editor .intents button { padding: 0 7px; font-size: 11px; opacity: .45; }
@@ -146,3 +146,9 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 #arrows .mark .ar { fill: none; }
 #arrows .mark.sel .ar { stroke: var(--accent); } #arrows .mark.sel .head { fill: var(--accent); }
 #arrows .mend { fill: #fff; stroke: var(--accent); pointer-events: all; cursor: crosshair; }
+
+.editor.fixed textarea { font-size: 12px; line-height: 17px; }
+.comment .reply .rh { display: flex; gap: 6px; align-items: center; }
+.comment .reply .ed { color: var(--dim); font-size: 10px; }
+.comment .reply .icons { opacity: 0; }
+.comment .reply:hover .icons { opacity: 1; }

@@ -120,7 +120,7 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
   }
   for (const [on, c] of crops) out.push(o.crops ? `  drawn on ${byId.get(on)?.key}: ${A}${c}` : `  (crop of ${byId.get(on)?.key} with drawings: --crops)`);
   for (const r of reacts) out.push(`${r.reaction!.kind} ${r.key} v${r.reaction!.version}${r.reaction!.reason ? `: ${r.reaction!.reason}` : ''}`);
-  for (const r of replies) out.push(`${r.it.key} reply: ${r.t.text}`);
+  for (const r of replies) out.push(`${r.it.key} reply${r.t.edited ? ' (edited)' : ''}: ${r.t.text}`);
   mark();
   return out.join('\n');
 

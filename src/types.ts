@@ -18,10 +18,12 @@ export interface Version {
 
 export interface Source { commit?: string; launch?: string; files?: string[]; note?: string }
 
+export interface Reply { by: By; text: string; at: string; sent?: number; delivered?: boolean; edited?: boolean }
+
 export interface Comment {
   intent: Intent;
   status: 'open' | 'addressed' | 'resolved';
-  thread: { by: By; text: string; at: string; sent?: number; delivered?: boolean }[];
+  thread: Reply[];
   target?: string;          // item id
   targetVersion?: number;
   point?: [number, number]; // item-local, 0..1

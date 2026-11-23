@@ -208,7 +208,8 @@ function content(it: Item): string {
   }
   if (it.comment) {
     const c = it.comment;
-    const thread = c.thread.map(t => `<div class="reply"><b>${t.by === 'agent' ? 'agent' : 'you'}</b> ${md(t.text)}</div>`).join('');
+    const thread = c.thread.map((t, i) => `<div class="reply" data-r="${i}"><div class="rh"><b>${t.by === 'agent' ? 'agent' : 'you'}</b>${t.edited ? '<span class="ed">edited</span>' : ''}` +
+      (t.by === 'human' ? `<span class="icons"><span class="ic" data-act="editReply" title="Edit"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span><span class="ic" data-act="deleteReply" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span></span>` : '') + `</div>${md(t.text)}</div>`).join('');
     const mine = it.createdBy === 'human';
     const close = `<span class="icons">${mine ? `<span class="ic" data-act="edit" title="Edit"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span>` : ''}<span class="ic" data-act="delete" title="Delete (⌘Z brings it back)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span>${pinArrow(it) ? `<span class="ic" data-act="close" title="Close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ''}</span>`;
     const state = c.status === 'open' ? (it.delivered || !mine ? 'open' : 'waiting for agent') : c.status;
@@ -411,7 +412,7 @@ function editor(o: EdOpts) {
     `<textarea placeholder="${esc(o.placeholder ?? '')}" title="${tip} · Esc cancel"></textarea>`;
   world.appendChild(box);
   const ta = box.querySelector('textarea')!;
-  if (o.mode === 'line') ta.style.minHeight = '38px';
+  if (o.mode === 'line') { ta.style.minHeight = '17px'; ta.rows = 1; }
   ta.value = o.init ?? ''; ta.focus({ preventScroll: true });
   const grow = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
   ta.addEventListener('input', grow); grow();
@@ -432,7 +433,7 @@ function editor(o: EdOpts) {
     if (e.key === 'Escape') { close(); o.onCancel?.(); }
     else if (e.key === 'Enter' && (o.mode === 'text' ? e.metaKey || e.ctrlKey : !e.shiftKey)) { e.preventDefault(); save(); }
   };
-  ta.onblur = () => setTimeout(() => { if (!closed && document.activeElement !== ta) (o.mode === 'line' ? (close(), o.onCancel?.()) : save()); }, 100);
+  ta.onblur = () => setTimeout(() => { if (!closed && document.activeElement !== ta) save(); }, 100);
 }
 
 // Inline rename (section titles on the board and in the outline).
@@ -843,8 +844,12 @@ document.addEventListener('click', async e => {
     const order: Intent[] = ['change', 'question', 'bug', 'keep'], old = it.comment.intent;
     act({ op: 'edit', id: it.id, intent: order[(order.indexOf(old) + 1) % 4] }, { op: 'edit', id: it.id, intent: old });
   } else if (a === 'reply') {
-    editor({ x: it.x, y: it.y + it.h + 8, w: it.w, mode: 'line', placeholder: 'Reply…',
-      onSave: text => act({ op: 'reply', id: it.id, text }, { op: 'unreply', id: it.id }) });
+    // Written in place: the editor covers the card's button row.
+    inCard(it, b.closest('.acts') as HTMLElement, '', 'Reply…', text => act({ op: 'reply', id: it.id, text }, { op: 'unreply', id: it.id }));
+  } else if (a === 'editReply' || a === 'deleteReply') {
+    const row = b.closest('.reply') as HTMLElement, i = Number(row.dataset.r), r = it.comment!.thread[i];
+    if (a === 'deleteReply') { act({ op: 'deleteReply', id: it.id, i }, { op: 'insertReply', id: it.id, i, reply: r }); hint('Reply deleted · ⌘Z to undo'); }
+    else inCard(it, row, r.text, 'Reply…', text => act({ op: 'editReply', id: it.id, i, text }, { op: 'editReply', id: it.id, i, text: r.text }));
   } else if (a === 'resolve' || a === 'reopen') {
     act({ op: 'status', id: it.id, status: a === 'resolve' ? 'resolved' : 'open' }, { op: 'status', id: it.id, status: it.comment!.status });
   } else if (a === 'close') toggleOpen(it);
@@ -877,6 +882,15 @@ async function addFiles(files: File[], at: [number, number]) {
     at = [at[0] + 40, at[1] + 40];
   }
 }
+// An editor laid over part of a comment card (a reply row or the button row), same width, same scale.
+function inCard(it: Item, part: HTMLElement, init: string, placeholder: string, save: (text: string) => void) {
+  const k = 1 / view.z;
+  part.style.visibility = 'hidden';
+  const show = () => { part.style.visibility = ''; };
+  editor({ x: it.x, y: it.y + (part.offsetTop - 6) * k, w: it.w, mode: 'line', init, placeholder, fixedW: true,
+    onSave: text => { show(); if (text !== init) save(text); }, onCancel: show });
+}
+
 // Copy / paste of board items: the clipboard carries their ids; paste makes copies at the cursor.
 const CLIP = 'drawpad-items:';
 // One image or text card also goes out as a real image / text, so it pastes into other apps (chat, Figma).

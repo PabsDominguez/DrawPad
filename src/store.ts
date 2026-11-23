@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Board, By, Intent, Item, Mark, Section, Source, Version } from './types.ts';
+import type { Board, By, Intent, Item, Mark, Reply, Section, Source, Version } from './types.ts';
 import { ensureDirs, paths, writeAtomic } from './project.ts';
 import { imageSize, makeThumb } from './images.ts';
 import { GAP, PAD, SECTION_GAP, contentBottom, imageBox, moveSection, place, sectionRect, solid, textHeight } from './layout.ts';
@@ -399,6 +399,28 @@ export class Store {
     if (by === 'agent') it.seenByHuman = false; else this.lastHuman = Date.now();
     this.save();
     return `${it.key} replied (${it.comment.thread.length})`;
+  }
+
+  // The human edits or deletes their own reply (i = index in the thread); insertReply is delete's undo.
+  editReply(ref: string, i: number, text: string): string {
+    const it = this.find(ref), r = it.comment?.thread[i];
+    if (!r || r.by !== 'human') throw new Error(`${it.key} has no reply ${i} of yours`);
+    const rev = this.bump();
+    Object.assign(r, { text, sent: rev, delivered: false, edited: true }); it.rev = rev; this.lastHuman = Date.now();
+    this.save();
+    return `${it.key} reply ${i} edited`;
+  }
+  deleteReply(ref: string, i: number): string {
+    const it = this.find(ref), r = it.comment?.thread[i];
+    if (!r || r.by !== 'human') throw new Error(`${it.key} has no reply ${i} of yours`);
+    it.comment!.thread.splice(i, 1); it.rev = this.bump(); this.save();
+    return `${it.key} reply ${i} deleted`;
+  }
+  insertReply(ref: string, i: number, r: Reply): string {
+    const it = this.find(ref);
+    if (!it.comment) throw new Error(`${it.key} is not a comment`);
+    it.comment.thread.splice(i, 0, r); it.rev = this.bump(); this.save();
+    return `${it.key} reply restored`;
   }
 
   // Undo for the human's last reply.
