@@ -43,7 +43,7 @@ item to move them all, or its corner handle to scale them all. ⌘C / ⌘V copie
 Paste an image, URL or text anywhere; drop image files; double-click empty space to write a card.
 
 Comments: click a spot (or drag a region) on an item. A comment goes to the agent when you save it (Enter);
-there is no Send step. It then collapses to its pin; hover its pin to peek, click to open (× closes it), drag to move it.
+there is no Send step. It then collapses to its pin; hover its pin to peek, click to open (the × icon closes it; the pencil and bin icons edit and delete it), drag to move it.
 A comment ending in "?" is sent as a question unless you picked a type.
 A blue dot on a pin means the agent replied.
 

@@ -172,12 +172,12 @@ function content(it: Item): string {
     const c = it.comment;
     const thread = c.thread.map(t => `<div class="reply"><b>${t.by === 'agent' ? 'agent' : 'you'}</b> ${md(t.text)}</div>`).join('');
     const mine = it.createdBy === 'human';
-    const close = pinArrow(it) ? '<span class="x" data-act="close" title="Collapse to the pin">×</span>' : '';
+    const close = `<span class="icons">${mine ? `<span class="ic" data-act="edit" title="Edit"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span>` : ''}<span class="ic" data-act="delete" title="Delete (⌘Z brings it back)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span>${pinArrow(it) ? `<span class="ic" data-act="close" title="Close"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ''}</span>`;
     const acts = c.status !== 'resolved'
       ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}</div>`
       : `<div class="acts"><button data-act="reopen">Reopen</button></div>`;
     const state = c.status === 'open' ? (it.delivered || !mine ? 'open' : 'waiting for agent') : c.status;
-    return `<div class="card comment${c.status === 'resolved' ? ' done' : ''}" style="height:100%"><div class="head"><span class="chip i-${c.intent}"${mine ? ' data-act="intent" title="Click to change"' : ''}>${c.intent}</span>` +
+    return `<div class="card comment${c.status === 'resolved' ? ' done' : ''}"><div class="head"><span class="chip i-${c.intent}"${mine ? ' data-act="intent" title="Click to change"' : ''}>${c.intent}</span>` +
       `<span class="s-${c.status}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span>${close}</div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
   }
   return `<div class="card" style="height:100%">${md(v.text ?? '')}</div>${it.title ? label(it.title) : ''}${dot}${react}`;
@@ -236,8 +236,9 @@ function fitCards() {
     if (it.kind !== 'text' || busy === it.id) continue;
     const card = els.get(it.id)?.querySelector('.card') as HTMLElement | null;
     if (!card || card.offsetParent === null) continue;
-    const need = card.scrollHeight + 2;
-    if (need > it.h + 2) { it.h = need; op({ op: 'move', id: it.id, x: it.x, y: it.y, h: need, by: 'agent' }).catch(() => {}); }
+    // Comment cards are auto height (shrink and grow); other cards only grow.
+    const need = it.comment ? card.offsetHeight : card.scrollHeight + 2;
+    if (it.comment ? Math.abs(need - it.h) > 3 : need > it.h + 2) { it.h = need; op({ op: 'move', id: it.id, x: it.x, y: it.y, h: need, by: 'agent' }).catch(() => {}); }
   }
 }
 function place(el: HTMLElement, r: Rect) {
@@ -338,7 +339,7 @@ function hint(text: string, err = false) {
 }
 function setTool(t: typeof tool) {
   tool = t;
-  document.querySelectorAll<HTMLElement>('#bar [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  document.querySelectorAll<HTMLElement>('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
   view$.classList.toggle('tool-comment', t === 'comment' || t === 'frame');
   if (t === 'comment') hint('Comment: click a spot or drag a region on an item');
   if (t === 'frame') hint('Frame: drag out a box; what is inside joins it');
@@ -363,6 +364,8 @@ function editor(o: EdOpts) {
   const ta = box.querySelector('textarea')!;
   if (o.mode === 'line') ta.style.minHeight = '38px';
   ta.value = o.init ?? ''; ta.focus({ preventScroll: true });
+  const grow = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+  ta.addEventListener('input', grow); grow();
   box.addEventListener('pointerdown', e => e.stopPropagation());
   box.addEventListener('dblclick', e => e.stopPropagation());
   box.querySelectorAll<HTMLElement>('[data-i]').forEach(b => {
@@ -486,7 +489,7 @@ view$.addEventListener('pointerdown', e => {
   if (!board || e.button > 1) return;
   if (space || e.button === 1) { e.preventDefault(); return pan(e); }
   const t = e.target as HTMLElement;
-  if (t.closest('.editor, a, button, [data-act], [contenteditable="true"]')) return;
+  if (t.closest('.editor, #tools, a, button, [data-act], [contenteditable="true"]')) return;
   const start = toWorld(e.clientX, e.clientY);
   const it = itemAt(e);
   const hitArrow = t.classList.contains('hit') ? t.dataset.id! : null;
@@ -665,18 +668,20 @@ view$.addEventListener('dblclick', e => {
     return;
   }
   const it = itemAt(e);
-  if (it && it.kind === 'text' && it.createdBy === 'human') {
+  if (it && it.kind === 'text' && it.createdBy === 'human') return editItem(it);
+  if (it) return;
+  const [x, y] = toWorld(e.clientX, e.clientY);
+  editor({ x, y, w: 280, mode: 'text', placeholder: 'Note (markdown)', onSave: text => create({ op: 'add', kind: 'text', text, at: [x, y] }) });
+});
+function editItem(it: Item) {
+  {
     els.get(it.id)!.style.visibility = 'hidden';
     const restore = () => { const el = els.get(it.id); if (el) el.style.visibility = ''; };
     const old = { text: cur(it).text ?? '', intent: it.comment?.intent };
     editor({ x: it.x, y: it.y, w: it.w, init: old.text, mode: it.comment ? 'comment' : 'text', onCancel: restore,
       onSave: (text, intent) => { restore(); act({ op: 'edit', id: it.id, text, intent: it.comment ? intent : undefined }, { op: 'edit', id: it.id, text: old.text, intent: old.intent }); } });
-    return;
   }
-  if (it) return;
-  const [x, y] = toWorld(e.clientX, e.clientY);
-  editor({ x, y, w: 280, mode: 'text', placeholder: 'Note (markdown)', onSave: text => create({ op: 'add', kind: 'text', text, at: [x, y] }) });
-});
+}
 
 // Buttons inside cards.
 document.addEventListener('click', async e => {
@@ -694,6 +699,8 @@ document.addEventListener('click', async e => {
   } else if (a === 'resolve' || a === 'reopen') {
     act({ op: 'status', id: it.id, status: a === 'resolve' ? 'resolved' : 'open' }, { op: 'status', id: it.id, status: it.comment!.status });
   } else if (a === 'close') toggleOpen(it);
+  else if (a === 'edit') editItem(it);
+  else if (a === 'delete') { act({ op: 'archive', id: it.id }, { op: 'restore', id: it.id }); hint('Comment deleted · ⌘Z to undo'); }
 });
 $('#selbar').addEventListener('click', e => {
   const t = e.target as HTMLElement;
@@ -768,7 +775,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { if (e.key === ' ') { space = false; view$.classList.remove('hand'); } });
 addEventListener('blur', () => { space = false; view$.classList.remove('hand'); });
-document.querySelectorAll<HTMLElement>('#bar [data-tool]').forEach(b => (b.onclick = () => setTool(b.dataset.tool as typeof tool)));
+document.querySelectorAll<HTMLElement>('[data-tool]').forEach(b => (b.onclick = () => setTool(b.dataset.tool as typeof tool)));
 $('#fit').onclick = fitAll;
 $('#theme').onclick = () => {
   const light = document.body.classList.toggle('light'); document.body.classList.toggle('dark', !light);

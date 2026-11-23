@@ -82,13 +82,13 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
   transform-origin: 0 0; transform: scale(var(--inv)) translate(-50%, -50%); pointer-events: none; }
 
 .editor { position: absolute; z-index: 100001; background: var(--note); border: 2px solid var(--accent); border-radius: 7px; padding: 6px; }
-.editor textarea { width: 100%; min-height: 60px; resize: vertical; border: 0; outline: 0; background: transparent; color: var(--fg); font: 13px/19px -apple-system, system-ui, sans-serif; }
+.editor textarea { width: 100%; min-height: 38px; resize: none; overflow: hidden; border: 0; outline: 0; background: transparent; color: var(--fg); font: 13px/19px -apple-system, system-ui, sans-serif; }
 .editor .intents { display: flex; gap: 4px; margin-bottom: 4px; }
 .editor .intents button { padding: 0 7px; font-size: 11px; opacity: .45; }
 .editor .intents button.on { opacity: 1; }
 .editor .tip { color: var(--dim); font-size: 11px; }
 
-#hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); background: var(--card); border: 1px solid var(--line);
+#hint { position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%); background: var(--card); border: 1px solid var(--line);
   border-radius: 6px; padding: 5px 12px; color: var(--dim); pointer-events: none; opacity: 0; transition: opacity .2s; }
 #hint.show { opacity: 1; }
 #hint.err { color: var(--warn); }
@@ -118,8 +118,15 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 #arrows .pinh.shut.i-question { fill: var(--accent); } #arrows .pinh.shut.i-keep { fill: #3ecf8e; }
 #arrows .unread { fill: var(--accent); stroke: var(--bg); pointer-events: none; }
 
-.comment .x { margin-left: auto; cursor: pointer; font-size: 16px; line-height: 1; color: var(--dim); padding: 0 2px; }
-.comment .x:hover { color: var(--fg); }
 .gbox { position: absolute; outline: calc(1px * var(--inv)) solid var(--accent); pointer-events: none; z-index: 100001; }
 .gbox .handle { pointer-events: auto; }
 #peek { position: fixed; z-index: 20; max-width: 280px; pointer-events: none; display: none; }
+.comment, #peek .card { font-size: 12px; line-height: 17px; }
+.comment .icons { margin-left: auto; display: flex; gap: 2px; }
+.comment .ic { color: var(--dim); cursor: pointer; padding: 2px; border-radius: 4px; display: flex; }
+.comment .ic:hover { color: var(--fg); background: var(--sec); }
+#tools { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 2px; padding: 4px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+#tools button { display: flex; padding: 6px; border: 0; border-radius: 7px; background: transparent; color: var(--fg); cursor: pointer; }
+#tools button:hover { background: var(--sec); }
+#tools button.on { background: var(--accent); color: #fff; }
