@@ -59,7 +59,8 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 .card h3 { margin: 2px 0 4px; font-size: 15px; } .card p { margin: 0 0 4px; } .card ul { margin: 0; padding-left: 18px; }
 .card code { background: var(--sec); padding: 0 3px; border-radius: 3px; }
 .card a { color: var(--accent); }
-.comment { background: var(--note); }
+.comment { background: var(--card); border-radius: 12px; padding: 10px 13px; box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+.comment .head { font-size: 11px; color: var(--dim); display: flex; gap: 6px; align-items: center; }
 .comment .head { margin-bottom: 4px; }
 .comment .reply { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 4px; }
 .comment .reply b { font-weight: 600; }
@@ -94,7 +95,25 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 
 #view.hand, #view.hand * { cursor: grab !important; }
 #view.hand.panning, #view.hand.panning * { cursor: grabbing !important; }
-#arrows .pinh { fill: var(--warn); stroke: #fff; pointer-events: all; cursor: move; }
+#arrows .pinh { pointer-events: all; cursor: pointer; }
 #selbar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .comment.done { opacity: .55; }
 .sectitle[contenteditable="true"], #outline [contenteditable="true"] { outline: 2px solid var(--accent); background: var(--card); cursor: text; border-radius: 3px; }
+
+/* frames, selection boxes, comment links */
+.section.sel { border-color: var(--accent); }
+.section .shandle { display: none; pointer-events: auto; }
+.section.sel .shandle { display: block; }
+.sectitle:hover { color: var(--accent); }
+.marquee { position: absolute; border: calc(1px * var(--inv)) solid var(--accent); background: rgba(76,141,255,.08); pointer-events: none; z-index: 100002; }
+.framebox { position: absolute; border: calc(1.5px * var(--inv)) dashed var(--accent); border-radius: 10px; background: var(--sec); pointer-events: none; z-index: 100002; }
+.item.closed { display: none; }
+#arrows .clink .ln { stroke: var(--dim); fill: none; }
+#arrows .clink .halo { stroke: var(--bg); opacity: .5; fill: none; }
+#arrows .clink.sel .ln { stroke: var(--accent); stroke-dasharray: none; }
+#arrows .clink.done { opacity: .5; }
+#arrows .pinh { fill: var(--fg); stroke: var(--bg); }
+#arrows .pinh.shut { stroke: #fff; }
+#arrows .pinh.shut.i-change { fill: #f4c542; } #arrows .pinh.shut.i-bug { fill: var(--warn); }
+#arrows .pinh.shut.i-question { fill: var(--accent); } #arrows .pinh.shut.i-keep { fill: #3ecf8e; }
+#arrows .unread { fill: var(--accent); stroke: var(--bg); pointer-events: none; }

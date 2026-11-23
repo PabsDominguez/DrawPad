@@ -10,8 +10,10 @@ type Rect = { x: number; y: number; w: number; h: number };
 
 let board: Board | null = null;
 let view = { x: 40, y: 40, z: 0.5 };
-let tool: 'select' | 'comment' = 'select';
-let sel: string | null = null;
+let tool: 'select' | 'comment' | 'frame' = 'select';
+let sel = new Set<string>();        // selected item / arrow ids
+let selSec: string | null = null;   // or one selected section
+let opened = new Set<string>();     // comments the human has expanded (default: collapsed to their pin)
 let busy: string | null = null; // id being dragged: live updates skip it
 let mouse: [number, number] = [0, 0];
 let space = false;              // space held = hand tool
@@ -53,13 +55,22 @@ async function create(o: Op) {
 async function undoLast() { const u = undos.pop(); if (!u) return hint('Nothing to undo'); await op(u.undo); redos.push(u); hint('Undone · ⇧⌘Z to redo'); }
 async function redoLast() { const u = redos.pop(); if (!u) return hint('Nothing to redo'); await op(u.redo); undos.push(u); hint('Redone'); }
 
+// Mirrors src/layout.ts: members (comments float) and at least the drawn frame.
 function sectionRect(s: Section): Rect {
-  const m = solid().filter(i => i.section === s.id);
-  if (!m.length) return { x: s.x - PAD, y: s.y - PAD, w: 400, h: 160 };
-  const x0 = Math.min(...m.map(i => i.x)), y0 = Math.min(...m.map(i => i.y));
-  const x1 = Math.max(...m.map(i => i.x + i.w)), y1 = Math.max(...m.map(i => i.y + i.h));
-  return { x: x0 - PAD, y: y0 - PAD, w: x1 - x0 + 2 * PAD, h: y1 - y0 + 2 * PAD };
+  const m: Rect[] = solid().filter(i => i.section === s.id && !i.comment).map(i => ({ x: i.x - PAD, y: i.y - PAD, w: i.w + 2 * PAD, h: i.h + 2 * PAD }));
+  if (s.w && s.h) m.push({ x: s.x - PAD, y: s.y - PAD, w: s.w, h: s.h });
+  return bbox(m) ?? { x: s.x - PAD, y: s.y - PAD, w: 400, h: 160 };
 }
+// A comment with a pin collapses to the pin unless the human opened it.
+const pinArrow = (it: Item) => it.comment ? active().find(a => a.kind === 'arrow' && a.from === it.id && a.toPoint) : undefined;
+const closed = (it: Item) => !!pinArrow(it) && !opened.has(it.id);
+function toggleOpen(it: Item) {
+  if (opened.has(it.id)) opened.delete(it.id); else opened.add(it.id);
+  localStorage.setItem('open-' + board!.id, JSON.stringify([...opened]));
+  if (opened.has(it.id) && !it.seenByHuman) op({ op: 'seen', ids: [it.id] }).catch(() => {});
+  render();
+}
+const visible = () => solid().filter(i => !closed(i));
 
 // ---------- view ----------
 function applyView() {
@@ -121,7 +132,7 @@ function markSeenSoon() {
   seenT = window.setTimeout(() => {
     if (!board || document.hidden) return;
     const v = viewport();
-    const ids = solid().filter(i => i.createdBy === 'agent' && !i.seenByHuman && i.w * view.z > 140 &&
+    const ids = visible().filter(i => i.createdBy === 'agent' && !i.seenByHuman && i.w * view.z > 140 &&
       i.x >= v.x0 && i.x + i.w <= v.x1 + i.w / 2 && i.y >= v.y0 - i.h / 2 && i.y <= v.y1).map(i => i.id);
     if (ids.length) op({ op: 'seen', ids }).catch(() => {});
   }, 1500);
@@ -161,9 +172,10 @@ function content(it: Item): string {
     const c = it.comment;
     const thread = c.thread.map(t => `<div class="reply"><b>${t.by === 'agent' ? 'agent' : 'you'}</b> ${md(t.text)}</div>`).join('');
     const mine = it.createdBy === 'human';
+    const close = pinArrow(it) ? '<button data-act="close" title="Collapse to the pin">Close</button>' : '';
     const acts = c.status !== 'resolved'
-      ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}</div>`
-      : `<div class="acts"><button data-act="reopen">Reopen</button></div>`;
+      ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}${close}</div>`
+      : `<div class="acts"><button data-act="reopen">Reopen</button>${close}</div>`;
     const state = c.status === 'open' ? (it.delivered || !mine ? 'open' : 'waiting for agent') : c.status;
     return `<div class="card comment${c.status === 'resolved' ? ' done' : ''}" style="height:100%"><div class="head"><span class="chip i-${c.intent}"${mine ? ' data-act="intent" title="Click to change"' : ''}>${c.intent}</span>` +
       `<span class="s-${c.status}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span></div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
@@ -178,11 +190,13 @@ function render() {
     live.add(it.id);
     let el = els.get(it.id);
     if (!el) { el = document.createElement('div'); el.dataset.id = it.id; world.appendChild(el); els.set(it.id, el); }
-    if (el.dataset.rev !== String(it.rev) || el.dataset.sel !== String(sel === it.id)) {
-      el.className = `item ${it.kind}${sel === it.id ? ' sel' : ''}`;
-      el.innerHTML = content(it) + (sel === it.id ? '<div class="handle"></div>' : '');
-      el.dataset.rev = String(it.rev); el.dataset.sel = String(sel === it.id);
+    const on = sel.has(it.id), one = on && sel.size === 1;
+    const state = `${it.rev}${on}${one}`;
+    if (el.dataset.state !== state) {
+      el.innerHTML = content(it) + (one ? '<div class="handle"></div>' : '');
+      el.dataset.state = state;
     }
+    el.className = `item ${it.kind}${on ? ' sel' : ''}${closed(it) ? ' closed' : ''}`;
     if (busy !== it.id) place(el, it);
   }
   for (const [id, el] of els) if (!live.has(id)) { el.remove(); els.delete(id); }
@@ -193,9 +207,10 @@ function render() {
     let el = secEls.get(s.id);
     if (!el) {
       el = document.createElement('div'); el.className = 'section'; el.dataset.sec = s.id;
-      el.innerHTML = '<div class="sectitle" title="Drag to move the section · double-click to rename"></div>';
+      el.innerHTML = '<div class="sectitle" title="Drag to move with everything in it · double-click to rename"></div><div class="handle shandle" title="Drag to resize"></div>';
       world.prepend(el); secEls.set(s.id, el);
     }
+    el.classList.toggle('sel', selSec === s.id);
     const t = el.firstChild as HTMLElement;
     if (!t.isContentEditable) t.textContent = s.title;
     place(el, sectionRect(s));
@@ -207,7 +222,7 @@ function render() {
 }
 // Text cards grow to their content; the real height goes back to the server so placement stays honest.
 function fitCards() {
-  for (const it of solid()) {
+  for (const it of visible()) {
     if (it.kind !== 'text' || busy === it.id) continue;
     const card = els.get(it.id)?.querySelector('.card') as HTMLElement | null;
     if (!card || card.offsetParent === null) continue;
@@ -244,15 +259,34 @@ function drawArrows() {
     const f = byId.get(a.from!), t = byId.get(a.to!);
     if (!f || !t || f.state !== 'active' || t.state !== 'active') continue;
     const end: [number, number] = a.toPoint ? [t.x + a.toPoint[0] * t.w, t.y + a.toPoint[1] * t.h] : edge(t, [f.x + f.w / 2, f.y + f.h / 2]);
+    if (f.comment && a.toPoint) { html += commentLink(f, a, end, k); continue; }
     const start = edge(f, end);
-    const pin = f.comment && a.toPoint;
-    if (!pin) html += `<path class="hit" data-id="${a.id}" stroke-width="${14 * k}" d="M${start[0]},${start[1]}L${end[0]},${end[1]}"/>`;
-    html += pin ? `<g class="${sel === a.id ? 'sel' : ''}"><path class="ar" stroke-width="${2 * k}" d="M${start[0]},${start[1]}L${end[0]},${end[1]}"/></g>` : arrowPath(start, end, sel === a.id ? 'sel' : '');
+    html += `<path class="hit" data-id="${a.id}" stroke-width="${14 * k}" d="M${start[0]},${start[1]}L${end[0]},${end[1]}"/>`;
+    html += arrowPath(start, end, sel.has(a.id) ? 'sel' : '');
     if (a.label) html += `<text x="${(start[0] + end[0]) / 2}" y="${(start[1] + end[1]) / 2}" font-size="${12 * k}">${esc(a.label)}</text>`;
-    // Comment pins are draggable.
-    if (pin) html += `<circle class="pinh" data-c="${f.id}" data-a="${a.id}" cx="${end[0]}" cy="${end[1]}" r="${7 * k}" stroke-width="${2 * k}"><title>Drag to move the pin</title></circle>`;
   }
   svg.innerHTML = html;
+}
+
+// Comment → pin: a dashed elbow line from the card's facing side; collapsed comments show only the pin.
+function commentLink(c: Item, a: Item, p: [number, number], k: number): string {
+  const shut = closed(c), cls = `clink${sel.has(c.id) ? ' sel' : ''}${c.comment!.status === 'resolved' ? ' done' : ''}`;
+  let line = '';
+  if (!shut) {
+    const right = p[0] > c.x + c.w, left = p[0] < c.x;
+    let d: string;
+    if (right || left) {
+      const sx = right ? c.x + c.w : c.x, sy = Math.min(c.y + c.h - 14, Math.max(c.y + 14, p[1])), mx = (sx + p[0]) / 2;
+      d = `M${sx},${sy}H${mx}V${p[1]}H${p[0]}`;
+    } else {
+      const sy = p[1] > c.y + c.h ? c.y + c.h : c.y, my = (sy + p[1]) / 2;
+      d = `M${p[0]},${sy}V${my}V${p[1]}`;
+    }
+    line = `<path class="halo" d="${d}" stroke-width="${4 * k}"/><path class="ln" d="${d}" stroke-width="${1.5 * k}" stroke-dasharray="${5 * k} ${4 * k}"/>`;
+  }
+  const r = (shut ? 9 : 5) * k, unread = !c.seenByHuman ? `<circle class="unread" cx="${p[0] + r}" cy="${p[1] - r}" r="${4 * k}"/>` : '';
+  const tip = shut ? 'Click to open · drag to move' : 'Click to close · drag to move';
+  return `<g class="${cls}">${line}<circle class="pinh i-${c.comment!.intent}${shut ? ' shut' : ''}" data-c="${c.id}" data-a="${a.id}" cx="${p[0]}" cy="${p[1]}" r="${r}" stroke-width="${2 * k}"><title>${tip}</title></circle>${unread}</g>`;
 }
 
 function outline() {
@@ -276,13 +310,14 @@ function status() {
   $('#status').textContent = `${board!.name} · round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`;
 }
 function selbar() {
-  const it = sel ? byId.get(sel) : undefined, s = $('#selbar');
-  if (!it) { setHTML(s, ''); return; }
-  const agentItem = it.createdBy === 'agent' && it.kind !== 'arrow' && !it.comment;
-  const r = it.reaction?.kind;
-  setHTML(s, `<code title="Click to copy, then mention it in chat">${esc(it.key)}</code>` +
-    (agentItem ? `<button data-act="approve" class="${r === 'approve' ? 'on' : ''}">Approve</button><button data-act="reject" class="${r === 'reject' ? 'on' : ''}">Reject</button>` : '') +
-    '<button data-act="archive" title="Delete / Backspace">Archive</button>');
+  const s = $('#selbar'), sec = board!.sections.find(x => x.id === selSec);
+  if (sec) return setHTML(s, `<b>${esc(sec.title)}</b><button data-bar="unframe" title="Removes the frame; what's in it stays (⌫)">Remove frame</button>`);
+  const its = [...sel].map(id => byId.get(id)).filter(Boolean) as Item[];
+  if (!its.length) return setHTML(s, '');
+  const one = its.length === 1 ? its[0] : undefined;
+  setHTML(s, (one ? `<code title="Click to copy, then mention it in chat">${esc(one.key)}</code>` : `<span>${its.length} selected</span>`) +
+    (its.some(i => i.kind !== 'arrow') ? '<button data-bar="frame" title="Put the selection in a new frame">Frame</button>' : '') +
+    '<button data-bar="delete" title="⌫ · ⌘Z brings it back">Delete</button>');
 }
 
 // ---------- hints ----------
@@ -294,10 +329,11 @@ function hint(text: string, err = false) {
 function setTool(t: typeof tool) {
   tool = t;
   document.querySelectorAll<HTMLElement>('#bar [data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  view$.classList.toggle('tool-comment', t === 'comment');
+  view$.classList.toggle('tool-comment', t === 'comment' || t === 'frame');
   if (t === 'comment') hint('Comment: click a spot or drag a region on an item');
+  if (t === 'frame') hint('Frame: drag out a box; what is inside joins it');
 }
-function select(id: string | null) { sel = id; render(); }
+function select(ids: string[] = [], sec: string | null = null) { sel = new Set(ids); selSec = sec; render(); }
 
 // ---------- editor ----------
 let editing = false;
@@ -394,6 +430,45 @@ function pan(e: PointerEvent) {
   addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
 }
 
+function drag(move: (p: [number, number]) => void, up: (p: [number, number]) => void) {
+  const onMove = (ev: PointerEvent) => move(toWorld(ev.clientX, ev.clientY));
+  const onUp = (ev: PointerEvent) => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); up(toWorld(ev.clientX, ev.clientY)); };
+  addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
+}
+const norm = (a: [number, number], b: [number, number]): Rect => ({ x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) });
+const inside = (i: Rect, r: Rect) => i.x >= r.x && i.y >= r.y && i.x + i.w <= r.x + r.w && i.y + i.h <= r.y + r.h;
+const touches = (i: Rect, r: Rect) => i.x < r.x + r.w && r.x < i.x + i.w && i.y < r.y + r.h && r.y < i.y + i.h;
+
+// Draws a box in world space; calls done with it (null for a plain click).
+function rubber(start: [number, number], cls: string, done: (r: Rect | null) => void, live?: (r: Rect) => void) {
+  const box = document.createElement('div'); box.className = cls; world.appendChild(box);
+  let r: Rect | null = null;
+  drag(p => {
+    const n = norm(start, p);
+    if (!r && n.w * view.z < 4 && n.h * view.z < 4) return;
+    r = n; place(box, r); live?.(r);
+  }, () => { box.remove(); done(r); });
+}
+
+async function makeFrame(f: { title?: string; x: number; y: number; w?: number; h?: number; ids: string[] }) {
+  const restore = Object.fromEntries(f.ids.map(id => [id, byId.get(id)?.section ?? null]));
+  const id = (await op({ op: 'frame', ...f })).split(' ')[0];
+  undos.push({ undo: { op: 'unframe', id, restore }, redo: { op: 'frame', id, ...f } }); redos.length = 0;
+  select([], id);
+  hint('Frame created · double-click its title to rename');
+}
+function frameSelection() {
+  const its = [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow') as Item[];
+  const r = bbox(its); if (!r) return;
+  makeFrame({ x: r.x, y: r.y, w: r.w + 2 * PAD, h: r.h + 2 * PAD, ids: its.map(i => i.id) });
+}
+function removeFrame(id: string) {
+  const s = board!.sections.find(x => x.id === id); if (!s) return;
+  const ids = solid().filter(i => i.section === id).map(i => i.id);
+  act({ op: 'unframe', id }, { op: 'frame', id, title: s.title, x: s.x, y: s.y, w: s.w, h: s.h, ids });
+  select(); hint(`Removed frame "${s.title}"; its items stay · ⌘Z to undo`);
+}
+
 view$.addEventListener('pointerdown', e => {
   if (!board || e.button > 1) return;
   if (space || e.button === 1) { e.preventDefault(); return pan(e); }
@@ -403,81 +478,128 @@ view$.addEventListener('pointerdown', e => {
   const it = itemAt(e);
   const hitArrow = t.classList.contains('hit') ? t.dataset.id! : null;
   const pinOf = t.classList.contains('pinh') ? byId.get(t.dataset.c!) : undefined;
-  const sec = t.classList.contains('sectitle') ? board.sections.find(s => s.id === (t.parentElement as HTMLElement).dataset.sec) : undefined;
-  let move: ((p: [number, number]) => void) | null = null, up: ((p: [number, number]) => void) | null = null;
+  const secEl = t.closest('.section') as HTMLElement | null;
+  const sec = secEl ? board.sections.find(s => s.id === secEl.dataset.sec) : undefined;
 
   if (pinOf?.comment) {
-    // Drag a comment's pin to a new spot on its target.
+    // Click a pin to open / close its comment; drag it to a new spot on its target.
     const c = pinOf.comment, target = byId.get(c.target!)!, arrow = byId.get(t.dataset.a!)!;
     const old = { point: c.point!, region: c.region, crop: c.crop };
-    let point = c.point!, region = c.region;
-    move = p => {
+    let point = c.point!, region = c.region, moved = false;
+    return drag(p => {
+      moved = moved || Math.hypot(p[0] - start[0], p[1] - start[1]) * view.z > 3;
+      if (!moved) return;
       point = local(target, p);
       if (old.region) { const d = [point[0] - old.point[0], point[1] - old.point[1]]; region = [old.region[0] + d[0], old.region[1] + d[1], old.region[2], old.region[3]]; }
       arrow.toPoint = point; drawArrows();
-    };
-    up = async () => {
-      if (point === old.point) return;
+    }, async () => {
+      if (!moved) return toggleOpen(pinOf);
       const crop = await makeCrop(target, point, region).catch(() => undefined);
       act({ op: 'repin', id: pinOf.id, point, region, crop }, { op: 'repin', id: pinOf.id, point: old.point, region: old.region, crop: old.crop });
-    };
-  } else if (tool === 'select' && !it && !hitArrow && !sec) {
-    if (sel) select(null);
-    return pan(e);
-  } else if (tool === 'select' && hitArrow) { select(hitArrow); return; }
-  else if (tool === 'select' && sec) {
-    const members = solid().filter(i => i.section === sec.id).map(i => ({ i, x: i.x, y: i.y }));
+    });
+  }
+
+  if (tool === 'frame') {
+    return rubber(start, 'framebox', r => {
+      setTool('select');
+      if (!r || r.w < 80 || r.h < 60) r = { x: start[0], y: start[1], w: 640, h: 420 };
+      const ids = solid().filter(i => !i.comment && inside(i, r!)).map(i => i.id);
+      makeFrame({ x: r.x + PAD, y: r.y + PAD, w: r.w, h: r.h, ids });
+    });
+  }
+
+  if (tool === 'select' && sec && t.classList.contains('shandle')) {
+    // Resize a frame from its corner (the box still never gets smaller than what's in it).
+    const r0 = sectionRect(sec), old = { x: sec.x, y: sec.y, w: sec.w, h: sec.h };
+    let r = r0;
+    return drag(p => {
+      r = { x: r0.x, y: r0.y, w: Math.max(160, r0.w + p[0] - start[0]), h: Math.max(100, r0.h + p[1] - start[1]) };
+      Object.assign(sec, { x: r.x + PAD, y: r.y + PAD, w: r.w, h: r.h }); refreshSections();
+    }, () => {
+      if (r === r0) return;
+      act({ op: 'resizeSection', id: sec.id, x: r.x + PAD, y: r.y + PAD, w: r.w, h: r.h }, { op: 'resizeSection', id: sec.id, ...old });
+    });
+  }
+
+  if (tool === 'select' && sec && t.classList.contains('sectitle')) {
+    // Drag a section by its title: everything in it moves along.
+    if (selSec !== sec.id) select([], sec.id);
+    const members = solid().filter(i => i.section === sec.id).map(i => ({ i, x: i.x, y: i.y })), s0 = { x: sec.x, y: sec.y };
     let d: [number, number] = [0, 0];
-    move = p => { d = [p[0] - start[0], p[1] - start[1]]; for (const m of members) { m.i.x = m.x + d[0]; m.i.y = m.y + d[1]; place(els.get(m.i.id)!, m.i); } refreshSections(); drawArrows(); };
-    up = () => { if (d[0] || d[1]) act({ op: 'moveSection', id: sec.id, dx: d[0], dy: d[1] }, { op: 'moveSection', id: sec.id, dx: -d[0], dy: -d[1] }); };
-  } else if (tool === 'select' && it) {
-    if (sel !== it.id) select(it.id);
-    const o = { x: it.x, y: it.y, w: it.w, h: it.h, section: it.section ?? null }, el = els.get(it.id)!;
-    const resize = t.classList.contains('handle');
+    return drag(p => {
+      d = [p[0] - start[0], p[1] - start[1]];
+      sec.x = s0.x + d[0]; sec.y = s0.y + d[1];
+      for (const m of members) { m.i.x = m.x + d[0]; m.i.y = m.y + d[1]; place(els.get(m.i.id)!, m.i); }
+      refreshSections(); drawArrows();
+    }, () => {
+      sec.x = s0.x; sec.y = s0.y; // the server applies the move
+      if (d[0] || d[1]) act({ op: 'moveSection', id: sec.id, dx: d[0], dy: d[1] }, { op: 'moveSection', id: sec.id, dx: -d[0], dy: -d[1] });
+    });
+  }
+
+  if (tool === 'select' && hitArrow) return select(e.shiftKey ? [...sel, hitArrow] : [hitArrow]);
+
+  if (tool === 'select' && it) {
+    // Shift-click toggles; dragging moves the whole selection.
+    if (e.shiftKey) { const n = new Set(sel); if (n.has(it.id)) n.delete(it.id); else n.add(it.id); return select([...n]); }
+    if (!sel.has(it.id)) select([it.id]);
+    const group = [...sel].map(id => byId.get(id)).filter(i => i && i.kind !== 'arrow' && i.state === 'active') as Item[];
+    const o = new Map(group.map(i => [i.id, { x: i.x, y: i.y, w: i.w, h: i.h, section: i.section ?? null }]));
+    const resize = t.classList.contains('handle') && group.length === 1;
     const ar = it.kind === 'image' ? it.h / it.w : 0;
     busy = it.id;
     let moved = false;
-    move = p => {
+    return drag(p => {
       const dx = p[0] - start[0], dy = p[1] - start[1];
       moved = moved || Math.abs(dx) + Math.abs(dy) > 2 / view.z;
-      if (resize) { it.w = Math.max(60, o.w + dx); it.h = ar ? it.w * ar : Math.max(40, o.h + dy); }
-      else { it.x = o.x + dx; it.y = o.y + dy; }
-      place(el, it); refreshSections(); drawArrows();
-    };
-    up = () => {
+      if (!moved) return;
+      if (resize) { const b = o.get(it.id)!; it.w = Math.max(60, b.w + dx); it.h = ar ? it.w * ar : Math.max(40, b.h + dy); place(els.get(it.id)!, it); }
+      else for (const i of group) { const b = o.get(i.id)!; i.x = b.x + dx; i.y = b.y + dy; place(els.get(i.id)!, i); }
+      refreshSections(); drawArrows();
+    }, () => {
       busy = null;
-      if (moved) act({ op: 'move', id: it.id, x: it.x, y: it.y, w: resize ? it.w : undefined, h: resize ? it.h : undefined },
-        { op: 'move', id: it.id, x: o.x, y: o.y, w: o.w, h: o.h, section: o.section });
-    };
-  } else if (tool === 'comment' && it && !it.comment) {
+      if (!moved) return;
+      const ids = resize ? [it.id] : group.map(i => i.id);
+      act({ op: 'batch', ops: ids.map(id => { const i = byId.get(id)!; return { op: 'move', id, x: i.x, y: i.y, w: resize ? i.w : undefined, h: resize ? i.h : undefined }; }) },
+        { op: 'batch', ops: ids.map(id => ({ op: 'move', id, ...o.get(id)! })) });
+    });
+  }
+
+  if (tool === 'select') {
+    // Empty canvas: drag a selection box (Shift adds to the selection).
+    const base = e.shiftKey ? [...sel] : [];
+    const pick = (r: Rect) => [...new Set([...base, ...visible().filter(i => touches(i, r)).map(i => i.id)])];
+    // A click on a frame's empty area selects the frame.
+    const inFrame = () => board!.sections.map(x => ({ x, r: sectionRect(x) })).filter(({ r }) => touches({ x: start[0], y: start[1], w: 0.01, h: 0.01 }, r))
+      .sort((p, q) => p.r.w * p.r.h - q.r.w * q.r.h)[0]?.x.id ?? null;
+    return rubber(start, 'marquee', r => (r ? select(pick(r)) : e.shiftKey ? select(base) : select([], inFrame())), r => { sel = new Set(pick(r)); for (const [id, el] of els) el.classList.toggle('sel', sel.has(id)); });
+  }
+
+  if (tool === 'comment' && it && !it.comment) {
     const target = it;
     const mark = document.createElement('div'); world.appendChild(mark);
     const p0 = local(target, start);
     let region: [number, number, number, number] | undefined;
     const showPin = () => { mark.className = 'pin'; Object.assign(mark.style, { left: start[0] + 'px', top: start[1] + 'px', width: '', height: '' }); };
     showPin();
-    move = p => {
+    drag(p => {
       const p1 = local(target, p);
       const r: [number, number, number, number] = [Math.min(p0[0], p1[0]), Math.min(p0[1], p1[1]), Math.abs(p1[0] - p0[0]), Math.abs(p1[1] - p0[1])];
       if (r[2] * target.w * view.z > 8 || r[3] * target.h * view.z > 8) {
         region = r; mark.className = 'region';
         place(mark, { x: target.x + r[0] * target.w, y: target.y + r[1] * target.h, w: r[2] * target.w, h: r[3] * target.h });
       } else { region = undefined; showPin(); }
-    };
-    up = () => {
+    }, () => {
       const point: [number, number] = region ? [region[0] + region[2] / 2, region[1] + region[3] / 2] : p0;
       editor({ x: target.x + target.w + 40, y: target.y + point[1] * target.h - 20, w: 240, mode: 'comment', placeholder: 'What should change here?',
         onSave: async (text, intent) => {
           const crop = await makeCrop(target, point, region).catch(() => undefined);
           mark.remove();
           await create({ op: 'comment', target: target.id, text, intent, point, region, crop });
+          hint('Sent to the agent · click the pin to read it again');
         }, onCancel: () => mark.remove() });
-    };
+    });
   }
-  if (!move) return;
-  const onMove = (ev: PointerEvent) => move!(toWorld(ev.clientX, ev.clientY));
-  const onUp = (ev: PointerEvent) => { removeEventListener('pointermove', onMove); removeEventListener('pointerup', onUp); up?.(toWorld(ev.clientX, ev.clientY)); };
-  addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
 });
 
 view$.addEventListener('pointermove', e => { mouse = toWorld(e.clientX, e.clientY); });
@@ -516,11 +638,11 @@ view$.addEventListener('dblclick', e => {
   editor({ x, y, w: 280, mode: 'text', placeholder: 'Note (markdown)', onSave: text => create({ op: 'add', kind: 'text', text, at: [x, y] }) });
 });
 
-// Buttons inside cards and the selection bar.
+// Buttons inside cards.
 document.addEventListener('click', async e => {
   const b = (e.target as HTMLElement).closest('[data-act]') as HTMLElement | null;
   if (!b || !board) return;
-  const it = b.closest('.item') ? byId.get((b.closest('.item') as HTMLElement).dataset.id!) : sel ? byId.get(sel) : undefined;
+  const it = b.closest('.item') ? byId.get((b.closest('.item') as HTMLElement).dataset.id!) : undefined;
   if (!it) return;
   const a = b.dataset.act;
   if (a === 'intent' && it.comment) {
@@ -531,19 +653,24 @@ document.addEventListener('click', async e => {
       onSave: text => act({ op: 'reply', id: it.id, text }, { op: 'unreply', id: it.id }) });
   } else if (a === 'resolve' || a === 'reopen') {
     act({ op: 'status', id: it.id, status: a === 'resolve' ? 'resolved' : 'open' }, { op: 'status', id: it.id, status: it.comment!.status });
-  } else if (a === 'approve' || a === 'reject') {
-    const prev = { op: 'react', id: it.id, kind: it.reaction?.kind, reason: it.reaction?.reason };
-    if (it.reaction?.kind === a) return act({ op: 'react', id: it.id }, prev); // clicking again withdraws
-    editor({ x: it.x, y: it.y + it.h + 8, w: Math.max(it.w, 260), mode: 'line', allowEmpty: true,
-      placeholder: `${a === 'approve' ? 'Approve' : 'Reject'}: reason (optional), Enter`,
-      onSave: reason => act({ op: 'react', id: it.id, kind: a, reason: reason || undefined }, prev) });
-  } else if (a === 'archive') archive(it);
+  } else if (a === 'close') toggleOpen(it);
 });
 $('#selbar').addEventListener('click', e => {
-  if ((e.target as HTMLElement).tagName === 'CODE') { navigator.clipboard.writeText((e.target as HTMLElement).textContent!); hint('Key copied'); }
+  const t = e.target as HTMLElement;
+  if (t.tagName === 'CODE') { navigator.clipboard.writeText(t.textContent!); hint('Key copied'); }
+  const a = t.dataset.bar;
+  if (a === 'frame') frameSelection();
+  else if (a === 'delete') deleteSelection();
+  else if (a === 'unframe' && selSec) removeFrame(selSec);
 });
 
-function archive(it: Item) { sel = null; act({ op: 'archive', id: it.id }, { op: 'restore', id: it.id }); hint(`Archived ${it.key} · ⌘Z to undo`); }
+// Archive is the delete: nothing is lost, ⌘Z (or the agent's restore) brings it back.
+function deleteSelection() {
+  if (selSec) return removeFrame(selSec);
+  const ids = [...sel].filter(id => byId.has(id)); if (!ids.length) return;
+  act({ op: 'batch', ops: ids.map(id => ({ op: 'archive', id })) }, { op: 'batch', ops: ids.map(id => ({ op: 'restore', id })) });
+  select(); hint(`Deleted ${ids.length === 1 ? byId.get(ids[0])!.key : ids.length + ' items'} · ⌘Z to undo`);
+}
 
 // ---------- paste / drop ----------
 async function addFiles(files: File[], at: [number, number]) {
@@ -573,12 +700,14 @@ document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === ' ') { e.preventDefault(); if (!space) { space = true; view$.classList.add('hand'); } return; }
   if ((e.metaKey || e.ctrlKey) && k === 'z') { e.preventDefault(); (e.shiftKey ? redoLast() : undoLast()).catch(() => {}); return; }
+  if ((e.metaKey || e.ctrlKey) && k === 'a') { e.preventDefault(); select(visible().map(i => i.id)); return; }
   if (e.metaKey || e.ctrlKey) return;
-  if (k === 'v') setTool('select');
+  if (e.shiftKey && e.code === 'Digit1') fitAll();
+  else if (k === 'v') setTool('select');
   else if (k === 'c') setTool('comment');
-  else if (k === 'f') fitAll();
-  else if (k === 'escape') { setTool('select'); select(null); }
-  else if ((k === 'backspace' || k === 'delete') && sel) { const it = byId.get(sel); if (it) archive(it); }
+  else if (k === 'f') setTool('frame');
+  else if (k === 'escape') { setTool('select'); select(); }
+  else if (k === 'backspace' || k === 'delete') deleteSelection();
 });
 document.addEventListener('keyup', e => { if (e.key === ' ') { space = false; view$.classList.remove('hand'); } });
 addEventListener('blur', () => { space = false; view$.classList.remove('hand'); });
@@ -615,6 +744,8 @@ new EventSource('/api/events').onmessage = async e => {
     first = false;
     const saved = localStorage.getItem('view-' + board!.id);
     if (saved) { view = JSON.parse(saved); applyView(); } else fitAll();
+    opened = new Set(JSON.parse(localStorage.getItem('open-' + board!.id) ?? '[]'));
+    render();
     document.title = `DrawPad · ${board!.name}`;
     // One window per board: a newly opened window (it comes to the front) closes the older ones.
     const bc = new BroadcastChannel('drawpad-' + board!.id);

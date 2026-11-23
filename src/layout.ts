@@ -9,12 +9,13 @@ export interface PlaceOpts { at?: [number, number]; below?: Item; rightOf?: Item
 export const solid = (b: Board) => b.items.filter(i => i.state === 'active' && i.kind !== 'arrow');
 const members = (b: Board, s: Section) => solid(b).filter(i => i.section === s.id);
 
+// Box = members (comments float, they don't stretch it), and at least the drawn frame.
 export function sectionRect(b: Board, s: Section, ignore?: string): Rect {
-  const m = members(b, s).filter(i => i.id !== ignore);
+  const m: Rect[] = members(b, s).filter(i => i.id !== ignore && !i.comment).map(i => ({ x: i.x - PAD, y: i.y - PAD, w: i.w + 2 * PAD, h: i.h + 2 * PAD }));
+  if (s.w && s.h) m.push({ x: s.x - PAD, y: s.y - PAD, w: s.w, h: s.h });
   if (!m.length) return { x: s.x - PAD, y: s.y - PAD, w: 400, h: 160 };
   const x0 = Math.min(...m.map(i => i.x)), y0 = Math.min(...m.map(i => i.y));
-  const x1 = Math.max(...m.map(i => i.x + i.w)), y1 = Math.max(...m.map(i => i.y + i.h));
-  return { x: x0 - PAD, y: y0 - PAD, w: x1 - x0 + 2 * PAD, h: y1 - y0 + 2 * PAD };
+  return { x: x0, y: y0, w: Math.max(...m.map(i => i.x + i.w)) - x0, h: Math.max(...m.map(i => i.y + i.h)) - y0 };
 }
 
 export function contentBottom(b: Board): number | null {

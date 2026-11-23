@@ -156,10 +156,13 @@ export class Store {
     // Dropping it inside another section's box moves it into that section.
     if (section !== undefined) it.section = section ?? undefined;
     else if (by === 'human' && it.kind !== 'arrow' && (dx || dy)) {
-      const into = this.sectionAt(it.x + it.w / 2, it.y + it.h / 2, it.id);
+      // A drawn frame is a real box: dropping an item outside it takes the item out.
+      const cx = it.x + it.w / 2, cy = it.y + it.h / 2;
+      const into = this.sectionAt(cx, cy, it.id);
       const own = this.board.sections.find(s => s.id === it.section);
       if (into && into.id !== it.section) it.section = into.id;
-      else if (own && !solid(this.board).some(i => i.section === own.id && i.id !== it.id)) { own.x += dx; own.y += dy; own.rev = rev; }
+      else if (own?.w && !into) it.section = undefined;
+      else if (own && !own.w && !solid(this.board).some(i => i.section === own.id && i.id !== it.id)) { own.x += dx; own.y += dy; own.rev = rev; }
     }
     this.save();
     return line(this, it);
@@ -195,6 +198,41 @@ export class Store {
     if (!s) throw new Error(`no section ${id}`);
     s.title = title; s.rev = this.bump(); this.save();
     return `section "${title}"`;
+  }
+
+  // A frame the human drew (or the undo of removing one): explicit box, adopts the given items in place.
+  frame(f: { id?: string; title?: string; x: number; y: number; w?: number; h?: number; ids?: string[] }): string {
+    const rev = this.bump();
+    const id = f.id && !this.board.sections.some(s => s.id === f.id) ? f.id : `s${this.nid()}`;
+    let n = this.board.sections.length + 1;
+    while (this.board.sections.some(s => s.title === `Frame ${n}`)) n++;
+    const s: Section = { id, title: f.title ?? `Frame ${n}`, x: Math.round(f.x), y: Math.round(f.y), rev };
+    if (f.w && f.h) { s.w = Math.round(f.w); s.h = Math.round(f.h); }
+    this.board.sections.push(s);
+    for (const r of f.ids ?? []) { const it = this.find(r); it.section = id; it.rev = rev; }
+    this.save();
+    return `${id} section "${s.title}"`;
+  }
+  // Removes a section; its items stay where they are (loose, or back where `restore` says).
+  unframe(id: string, restore: Record<string, string | null> = {}): string {
+    const s = this.board.sections.find(x => x.id === id);
+    if (!s) throw new Error(`no section ${id}`);
+    const rev = this.bump();
+    this.board.sections = this.board.sections.filter(x => x !== s);
+    for (const it of this.board.items) {
+      if (it.section === id) { it.section = undefined; it.rev = rev; }
+      if (it.id in restore) { it.section = restore[it.id] ?? undefined; it.rev = rev; }
+    }
+    this.save();
+    return `section "${s.title}" removed`;
+  }
+  resizeSection(id: string, x: number, y: number, w?: number, h?: number): string {
+    const s = this.board.sections.find(q => q.id === id);
+    if (!s) throw new Error(`no section ${id}`);
+    s.x = Math.round(x); s.y = Math.round(y);
+    if (w && h) { s.w = Math.round(w); s.h = Math.round(h); } else { delete s.w; delete s.h; }
+    s.rev = this.bump(); this.save();
+    return `section "${s.title}" resized`;
   }
 
   // Creates the section if needed and moves the given items into its row.

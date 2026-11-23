@@ -35,14 +35,22 @@ has paused for ~8 seconds.
 
 ## Human controls
 
-V select · C comment (click a spot, or drag a region; drag a pin later to move it) · Space hand ·
-F fit · Esc · Backspace archive · ⌘Z undo · ⇧⌘Z redo · double-click a section title to rename it.
-Paste an image, URL or text anywhere; drop image files; double-click empty space to write a card.
-A comment goes to the agent when you save it (Enter); there is no Send step.
+V select · C comment · F frame · Space hand · ⇧1 fit all · Esc · ⌫ delete (archive) · ⌘A select all ·
+⌘Z undo · ⇧⌘Z redo · double-click a section title to rename it.
 
-Sections: an item belongs to a section until it is dropped inside another section's box. Dragging it
-past its own section's edge only stretches the box; it never makes the item loose. Pasted items join the
-section under the cursor, else they are loose ("Inbox / loose" in `drawpad board`).
+Select: drag on empty canvas for a selection box (Shift adds), Shift-click to add/remove, drag any selected
+item to move them all. Pan with Space-drag, the trackpad or the scroll wheel; zoom with pinch or ⌘-scroll.
+Paste an image, URL or text anywhere; drop image files; double-click empty space to write a card.
+
+Comments: click a spot (or drag a region) on an item. A comment goes to the agent when you save it (Enter);
+there is no Send step. It then collapses to its pin; click the pin to open or close it, drag it to move it.
+A blue dot on a pin means the agent replied.
+
+Frames and sections: press F and drag out a box (what's fully inside joins it), or select items and
+click Frame. Drag the title to move the frame with everything in it; click its empty area to select it, then
+drag the corner to resize or "Remove frame" (its items stay). Dropping an item outside a drawn frame takes it
+out; the agent's sections (no drawn box) only stretch, so an item leaves them only by being dropped into
+another section. Pasted items join the section under the cursor, else they are loose ("Inbox / loose").
 
 Pin comments send the whole image (max 1000px) with the pin drawn on it; region comments send a crop of the region.
 

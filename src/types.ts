@@ -59,7 +59,8 @@ export interface Item {
   reaction?: Reaction;
 }
 
-export interface Section { id: string; title: string; x: number; y: number; rev: number }
+// x, y: where the first member goes. w, h: set for frames the human drew or resized (the box never shrinks below them).
+export interface Section { id: string; title: string; x: number; y: number; rev: number; w?: number; h?: number }
 
 export interface Board {
   schemaVersion: number;

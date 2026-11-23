@@ -1,6 +1,10 @@
 # DrawPad: a visual working space for building apps with an AI agent
 
-Status: draft v3, 2026-11-22.
+Status: draft v4, 2026-11-23.
+v4 changes (Pablo's second pass): human-drawn frames (F, or Frame on a selection) with an explicit box;
+an item dropped outside a drawn frame leaves it; selection box on empty canvas, Shift-click multi-select,
+group move and delete as one undo step; comments collapse to their pin after saving (click to open);
+comment link is a dashed elbow line; Approve / Reject hidden in the UI until mockups (step 2).
 v3 changes (after the first Liftor test): no Send step, human feedback reaches the agent when saved;
 no arrow tool for the human (pin + note covers it); Cmd+Z / Shift+Cmd+Z undo; draggable comment pins;
 pin crops are the whole image with the pin drawn on it.

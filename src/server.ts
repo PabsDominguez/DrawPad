@@ -39,6 +39,11 @@ export function serve(root: string, port = 0): Promise<number> {
     react: a => store.react(a.id, a.kind, a.reason),
     repin: a => store.repin(a.id, a.point, a.region, a.crop),
     seen: a => store.seen(a.ids ?? []),
+    frame: a => store.frame(a),
+    unframe: a => store.unframe(a.id, a.restore),
+    resizeSection: a => store.resizeSection(a.id, a.x, a.y, a.w, a.h),
+    // Several ops as one human action (one undo step).
+    batch: a => (a.ops as any[]).map(o => { const f = ops[o.op]; if (!f || o.op === 'batch') throw new Error(`unknown op ${o.op}`); return f({ by: a.by, ...o }); }).join('\n'),
   };
 
   const tsCache = new Map<string, string>();
