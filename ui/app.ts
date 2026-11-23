@@ -11,7 +11,7 @@ type Rect = { x: number; y: number; w: number; h: number };
 let board: Board | null = null;
 let view = { x: 40, y: 40, z: 0.5 };
 type Shape = 'line' | 'arrow' | 'rect' | 'ellipse';
-let tool: 'select' | 'comment' | 'frame' | Shape = 'select';
+let tool: 'select' | 'comment' | 'frame' | 'text' | Shape = 'select';
 const SHAPES: string[] = ['line', 'arrow', 'rect', 'ellipse'];
 let sel = new Set<string>();        // selected item / arrow ids
 let selSec: string | null = null;   // or one selected section
@@ -386,8 +386,9 @@ function hint(text: string, err = false) {
 function setTool(t: typeof tool) {
   tool = t;
   document.querySelectorAll<HTMLElement>('[data-tool]').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  view$.classList.toggle('tool-comment', t === 'comment' || t === 'frame');
+  view$.classList.toggle('tool-comment', t === 'comment' || t === 'frame' || t === 'text');
   if (t === 'comment') hint('Comment: click a spot or drag a region on an item');
+  if (t === 'text') hint('Text: click, or drag to set the width, then type · ⌘Enter or click away to save');
   if (t === 'frame') hint('Frame: drag out a box; what is inside joins it');
   if (SHAPES.includes(t)) hint('Drag to draw · Shift snaps · drawn on a screen, it moves with it and the agent sees it');
   view$.classList.toggle('tool-draw', SHAPES.includes(t));
@@ -397,13 +398,13 @@ function select(ids: string[] = [], sec: string | null = null) { sel = new Set(i
 // ---------- editor ----------
 let editing = false;
 interface EdOpts { x: number; y: number; w: number; init?: string; mode: 'text' | 'comment' | 'line'; placeholder?: string; allowEmpty?: boolean;
-  onSave: (text: string, intent: Intent) => void; onCancel?: () => void }
+  fixedW?: boolean; onSave: (text: string, intent: Intent) => void; onCancel?: () => void }
 function editor(o: EdOpts) {
   editing = true;
   let intent: Intent = 'change';
   const box = document.createElement('div');
   box.className = 'editor' + (o.mode === 'text' ? '' : ' fixed');
-  Object.assign(box.style, { left: o.x + 'px', top: o.y + 'px', width: Math.max(o.w, 240) + 'px' });
+  Object.assign(box.style, { left: o.x + 'px', top: o.y + 'px', width: (o.fixedW ? o.w : Math.max(o.w, 240)) + 'px' });
   const intents: Intent[] = ['change', 'question', 'bug', 'keep'];
   const tip = o.mode === 'text' ? '⌘Enter or click away to save' : 'Enter to save · Shift+Enter new line';
   box.innerHTML = (o.mode === 'comment' ? `<div class="intents">${intents.map(i => `<button class="i-${i}${i === intent ? ' on' : ''}" data-i="${i}">${i}</button>`).join('')}</div>` : '') +
@@ -651,6 +652,16 @@ view$.addEventListener('pointerdown', e => {
     });
   }
 
+  if (tool === 'text') {
+    // Drag out the width of a text block (or just click); type markdown.
+    return rubber(start, 'framebox', r => {
+      setTool('select');
+      const w = r && r.w > 60 ? r.w : 280, at: [number, number] = r ? [r.x, r.y] : start;
+      editor({ x: at[0], y: at[1], w, mode: 'text', placeholder: 'Text (markdown: # heading, - list, **bold**)', fixedW: true,
+        onSave: text => create({ op: 'add', kind: 'text', text, at, width: w }) });
+    });
+  }
+
   if (tool === 'frame') {
     return rubber(start, 'framebox', r => {
       setTool('select');
@@ -868,11 +879,23 @@ async function addFiles(files: File[], at: [number, number]) {
 }
 // Copy / paste of board items: the clipboard carries their ids; paste makes copies at the cursor.
 const CLIP = 'drawpad-items:';
+// One image or text card also goes out as a real image / text, so it pastes into other apps (chat, Figma).
 document.addEventListener('copy', e => {
   if (editing || !board || !sel.size) return;
-  e.preventDefault(); e.clipboardData?.setData('text/plain', CLIP + board.id + ':' + [...sel].join(','));
-  hint(`Copied ${sel.size} · ⌘V to paste`);
+  const marker = CLIP + board.id + ':' + [...sel].join(',');
+  e.preventDefault(); e.clipboardData?.setData('text/plain', marker);
+  const one = sel.size === 1 ? byId.get([...sel][0]) : undefined;
+  if (one?.kind === 'text' && !one.comment) e.clipboardData?.setData('text/plain', cur(one).text ?? '');
+  if (one?.kind === 'image') copyImage(one, marker).catch(() => {});
+  hint(`Copied ${one?.kind === 'image' ? 'image' : sel.size === 1 ? one?.key : sel.size + ' items'} · ⌘V to paste`);
 });
+async function copyImage(it: Item, marker: string) {
+  const img = new Image(); img.src = '/a/' + cur(it).asset; await img.decode();
+  const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  c.getContext('2d')!.drawImage(img, 0, 0);
+  const png = await new Promise<Blob>(r => c.toBlob(b => r(b!), 'image/png'));
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': png, 'text/plain': new Blob([marker], { type: 'text/plain' }) })]);
+}
 document.addEventListener('cut', e => {
   if (editing || !board || !sel.size) return;
   e.preventDefault(); e.clipboardData?.setData('text/plain', CLIP + board.id + ':' + [...sel].join(','));
@@ -914,6 +937,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'v') setTool('select');
   else if (k === 'c') setTool('comment');
   else if (k === 'f') setTool('frame');
+  else if (k === 't') setTool('text');
   else if (k === 'l') setTool('line');
   else if (k === 'a') setTool('arrow');
   else if (k === 'r') setTool('rect');

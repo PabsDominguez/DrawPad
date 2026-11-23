@@ -103,7 +103,13 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
     const tail = `${to.length ? ` -> ${to.join(',')}` : ''} [${sec}]`;
     if (n.kind === 'image') out.push(`${n.key} new image ${v.pw}x${v.ph} ${A}${v.asset}${tail}`);
     else if (n.kind === 'link') out.push(`${n.key} new link ${v.url}${n.title ? ` "${clip(n.title, 60)}"` : ''}${tail}`);
-    else out.push(`${n.key} new text${tail}: ${v.text}`);
+    else {
+      // Where a loose note sits says what it's about: name the nearest thing.
+      const cx = n.x + n.w / 2, cy = n.y + n.h / 2;
+      const near = b.items.filter(i => i !== n && i.state === 'active' && !i.comment && (i.kind === 'image' || i.kind === 'link' || i.kind === 'text'))
+        .map(i => ({ i, d: Math.hypot(Math.max(i.x - cx, 0, cx - i.x - i.w), Math.max(i.y - cy, 0, cy - i.y - i.h)) })).sort((p, q) => p.d - q.d)[0];
+      out.push(`${n.key} new text${near && near.d < 400 ? ` near ${near.i.key}` : ''}${tail}: ${v.text}`);
+    }
   }
   for (const a of arrows) out.push(`arrow ${byId.get(a.from!)?.key} -> ${byId.get(a.to!)?.key}${a.toPoint ? ` @${a.toPoint.map(v => v.toFixed(2))}` : ''}${a.label ? ` "${a.label}"` : ''}`);
   // Drawings: one line each, one image per target (the latest crop shows all its drawings).
