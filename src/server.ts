@@ -11,7 +11,7 @@ import { boardText, feedbackText, hookLine } from './report.ts';
 
 const UI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'ui');
 const TYPES: Record<string, string> = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.ts': 'text/javascript',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.json': 'application/json' };
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.otf': 'font/otf' };
 
 export function serve(root: string, port = 0): Promise<number> {
   const store = new Store(root);
@@ -74,6 +74,11 @@ export function serve(root: string, port = 0): Promise<number> {
           if (!tsCache.has(st)) tsCache.set(st, stripTypeScriptTypes(fs.readFileSync(f, 'utf8')));
           return send(res, 200, tsCache.get(st)!, 'text/javascript');
         }
+        return file(res, f);
+      }
+      if (p.startsWith('/p/')) { // project files, for designs' relative links (css, fonts, images)
+        const f = path.resolve(root, '.' + decodeURIComponent(p.slice(2)));
+        if (!f.startsWith(root + path.sep) || f.includes(`${path.sep}.drawpad${path.sep}`) || !fs.existsSync(f) || !fs.statSync(f).isFile()) return send(res, 404, 'not found');
         return file(res, f);
       }
       if (p.startsWith('/a/')) return file(res, path.join(store.p.assets, path.basename(decodeURIComponent(p))), true);

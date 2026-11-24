@@ -14,6 +14,8 @@ export interface Version {
   text?: string;    // text items
   url?: string;     // link items
   note?: string;
+  html?: string;    // agent designs: the HTML/SVG source (asset is its PNG render)
+  cw?: number;      // CSS width it was rendered at
 }
 
 export interface Source { commit?: string; launch?: string; files?: string[]; note?: string }

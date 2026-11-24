@@ -152,6 +152,7 @@ function viewport() {
 function cull() {
   if (!board) return;
   const v = viewport(), m = 200 / view.z;
+  let live = 0;
   for (const it of solid()) {
     const el = els.get(it.id); if (!el) continue;
     const vis = it.x + it.w > v.x0 - m && it.x < v.x1 + m && it.y + it.h > v.y0 - m && it.y < v.y1 + m;
@@ -161,7 +162,24 @@ function cull() {
       const want = '/a/' + (ver.thumb && it.w * view.z * devicePixelRatio < THUMB_W * 1.1 ? ver.thumb : ver.asset);
       if (img.getAttribute('src') !== want) img.setAttribute('src', want);
     }
+    if (it.kind === 'image') liveView(el, it, vis && live < MAX_LIVE && it.w * view.z >= 360 && !!cur(it).html) && live++;
   }
+}
+// Designs up close: the real page (fonts, animation, crisp text) over the PNG. Clicks still go to the board.
+const MAX_LIVE = 6;
+function liveView(el: HTMLElement, it: Item, on: boolean): boolean {
+  const v = cur(it), want = on ? '/a/' + v.html : '';
+  let f = el.querySelector('iframe');
+  if (!on) { f?.remove(); return false; }
+  if (!f || f.getAttribute('src') !== want) {
+    f?.remove(); f = document.createElement('iframe');
+    f.setAttribute('sandbox', 'allow-scripts'); f.setAttribute('scrolling', 'no'); f.tabIndex = -1; f.className = 'live';
+    f.onload = () => f!.classList.add('ready');
+    f.setAttribute('src', want); el.querySelector('img')!.after(f);
+  }
+  const k = it.w / v.cw!;
+  Object.assign(f.style, { width: v.cw + 'px', height: it.h / k + 'px', transform: `scale(${k})` });
+  return true;
 }
 // Agent items that stay on screen at a readable size for 1.5s count as seen (clears the blue dot).
 let seenT = 0;

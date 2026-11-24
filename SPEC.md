@@ -329,7 +329,11 @@ Built (step 1 plus Pablo's feedback rounds):
 - Agent: `add` (upsert by key, versions), `--many`, `board`, `feedback`, `reply`, `done`, `drop`, `section`,
   `move`, `archive/restore`, `capture sim`, `hook`, `wait`, `stats`; launcher app; one window per board.
 
-Not built yet: mockups (step 2), option sets with picks (Approve/Reject is hidden in the UI until then),
+Step 2 part 1 built (2026-11-24): `add html <file.html|svg>` = an image item with an HTML source
+(`version.html`, `cw`), rendered by headless Chrome (exact width via an iframe, auto height); live sandboxed
+iframe when it is >= 360px on screen; `/p/` serves project files for its relative links. Re-add = version.
+
+Not built yet: themes/tokens grid, components, option sets with picks (Approve/Reject is hidden in the UI until then),
 `shot board`, version stepper, `capture url`. Deferred until needed: a comments overview panel.
 
 Sharing later: replace `sips` with JS image sizing and browser thumbnails (cross-platform), publish to npm,

@@ -102,3 +102,6 @@ export function textHeight(text: string, w: number): number {
   const lines = text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / perLine)), 0);
   return Math.min(900, 28 + lines * 20);
 }
+
+// What the agent calls it: designs are images with an HTML source.
+export const kindOf = (it: Item) => (it.versions.at(-1)?.html ? 'html' : it.kind);

@@ -153,3 +153,5 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 .comment .reply .icons { opacity: 0; }
 .comment .reply:hover .icons { opacity: 1; }
 .comment .chip[data-act] { cursor: pointer; }
+.item iframe.live { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: transparent; opacity: 0; }
+.item iframe.live.ready { opacity: 1; }

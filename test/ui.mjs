@@ -1,5 +1,6 @@
 // Headless UI smoke test: real mouse/keyboard input through Chrome DevTools Protocol.
-// Usage: npm run test:ui   (needs Google Chrome; opens nothing on screen; uses a throwaway project in /tmp)
+// Usage: npm run test:ui  (SHOT=/tmp/x.png saves a screenshot of the board after load)
+//         (needs Google Chrome; opens nothing on screen; uses a throwaway project in /tmp)
 // Add a check here whenever a UI behaviour is fixed or added.
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -23,6 +24,9 @@ function png(file, rgb) {
 png(path.join(dir, 'a.png'), [30, 30, 140]);
 dp('add', 'image', 'a.png', '--key', 's1', '--section', 'Screens');
 dp('add', 'image', 'a.png', '--key', 's2', '--section', 'Screens');
+fs.writeFileSync(path.join(dir, 'page.css'), 'body{margin:0;background:#123;color:#fff;font:40px system-ui}');
+fs.writeFileSync(path.join(dir, 'page.html'), '<!doctype html><link rel=stylesheet href=page.css><h1 id=t>Design</h1><div style="height:300px"></div>');
+const addHtml = dp('add', 'html', 'page.html', '--key', 'web', '--width', '800');
 const URL_ = dp('url');
 
 const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=9339', `--user-data-dir=${prof}`, '--window-size=1400,900', 'about:blank'], { stdio: 'ignore' });
@@ -55,6 +59,10 @@ const check = (name, ok, got) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}$
 try {
   await cmd('Runtime.enable'); await cmd('Page.navigate', { url: URL_ }); await sleep(1500);
   await fit();
+  check('html design rendered at full height', /^web v1 html .* 800x\d+/.test(addHtml) && (await byKey('web')).h > 350, addHtml);
+  await sleep(1000);
+  if (process.env.SHOT) fs.writeFileSync(process.env.SHOT, Buffer.from((await cmd('Page.captureScreenshot')).result.data, 'base64'));
+  check('design live up close (project css loads)', await ev(`(()=>{const f=document.querySelector('iframe.live.ready');return !!f && getComputedStyle(f.contentDocument?.body??document.body).backgroundColor})()`) !== false, null);
   const id1 = (await byKey('s1')).id, id2 = (await byKey('s2')).id;
   let a = await box(`[data-id="${id1}"]`), b = await box(`[data-id="${id2}"]`);
 
@@ -92,8 +100,9 @@ try {
   // Drawing: Shift pressed mid-drag snaps; drawn on a screen it sticks to it.
   await fit(); a = await box(`[data-id="${id1}"]`);
   await key('l', 'KeyL');
-  await mouse('mousePressed', a.x + 20, a.y + 150); await mouse('mouseMoved', a.x + 40, a.y + 160);
-  await mouse('mouseMoved', a.r - 20, a.y + 170, 8); await mouse('mouseReleased', a.r - 20, a.y + 170, 8); await sleep(800);
+  const ly = (a.y + a.b) / 2;
+  await mouse('mousePressed', a.x + 10, ly); await mouse('mouseMoved', a.x + 20, ly + 5);
+  await mouse('mouseMoved', a.r - 10, ly + 10, 8); await mouse('mouseReleased', a.r - 10, ly + 10, 8); await sleep(800);
   const line = (await board()).items.find(i => i.mark);
   check('line sticks to s1', line?.mark.on === id1, line?.mark);
   check('shift snaps horizontal', line && Math.abs(line.mark.pts[1] - line.mark.pts[3]) < 1e-6, line?.mark.pts);
@@ -111,7 +120,7 @@ try {
   const marker = await ev(`(()=>{const dt=new DataTransfer();document.dispatchEvent(new ClipboardEvent('copy',{clipboardData:dt,bubbles:true}));return dt.getData('text/plain')})()`);
   await mouse('mouseMoved', 300, 300);
   await ev(`(()=>{const dt=new DataTransfer();dt.setData('text/plain',${JSON.stringify(marker)});document.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true}))})()`); await sleep(1200);
-  check('paste makes a copy', (await board()).items.filter(i => i.kind === 'image' && i.state === 'active').length === 3);
+  check('paste makes a copy', (await board()).items.filter(i => i.kind === 'image' && !i.versions[0].html && i.state === 'active').length === 3);
 
   // Frame tool: drawn box adopts what is inside.
   await fit(); b = await box(`[data-id="${id2}"]`);

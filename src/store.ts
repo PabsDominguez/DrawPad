@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Board, By, Intent, Item, Mark, Reply, Section, Source, Version } from './types.ts';
+import type { Board, By, Kind, Intent, Item, Mark, Reply, Section, Source, Version } from './types.ts';
 import { ensureDirs, paths, writeAtomic } from './project.ts';
-import { imageSize, makeThumb } from './images.ts';
-import { GAP, PAD, SECTION_GAP, contentBottom, imageBox, moveSection, place, sectionRect, solid, textHeight } from './layout.ts';
+import { imageSize, makeThumb, renderHtml, svgSize } from './images.ts';
+import { GAP, PAD, SECTION_GAP, contentBottom, imageBox, kindOf, moveSection, place, sectionRect, solid, textHeight } from './layout.ts';
 
 export interface AddArgs {
-  kind: 'image' | 'text' | 'link';
+  kind: 'image' | 'text' | 'link' | 'html';
   key?: string; title?: string; section?: string;
   path?: string; asset?: string; text?: string; url?: string;
   at?: [number, number]; below?: string; rightOf?: string; inRowWith?: string;
@@ -68,6 +68,8 @@ export class Store {
     const by = a.by ?? 'agent';
     const rev = this.bump();
     let it = a.key ? this.board.items.find(i => i.key === a.key) : undefined;
+    const design = a.kind === 'html';
+    if (design) a.kind = 'image';
     if (it && it.kind !== a.kind) throw new Error(`key "${a.key}" is a ${it.kind}, not ${a.kind}`);
     const isNew = !it;
     const sec = a.section ? this.sectionByTitle(a.section)! : undefined; // before the item exists, so it doesn't count as content
@@ -76,7 +78,20 @@ export class Store {
     const ver: Version = { v: it ? it.versions[it.versions.length - 1].v + 1 : 1, at: now() };
     if (a.note) ver.note = a.note;
 
-    if (a.kind === 'image') {
+    if (design) {
+      if (!a.path || !fs.existsSync(a.path)) throw new Error(`no file ${a.path}`);
+      const stem = `${key.replace(/[^\w.-]/g, '_')}-v${ver.v}`, prev = it?.versions.at(-1);
+      const cw = Math.round(a.width ?? prev?.cw ?? svgSize(a.path)?.[0] ?? 1280);
+      const h = a.height ?? (a.path.toLowerCase().endsWith('.svg') ? svgSize(a.path)?.[1] : undefined);
+      const [, ch] = renderHtml(a.path, path.join(this.p.assets, stem + '.png'), cw, h && Math.round(h * cw / (svgSize(a.path)?.[0] ?? cw)));
+      // Source copy for the live view; <base> points at its folder (served under /p/) so relative files load.
+      const rel = path.relative(this.root, path.dirname(a.path));
+      let src = fs.readFileSync(a.path, 'utf8');
+      if (!rel.startsWith('..')) { const base = `<base href="/p/${rel ? encodeURI(rel) + '/' : ''}">`; src = /<head[^>]*>/i.test(src) ? src.replace(/<head[^>]*>/i, m => m + base) : base + src; }
+      fs.writeFileSync(path.join(this.p.assets, stem + '.html'), src);
+      Object.assign(ver, { asset: stem + '.png', html: stem + '.html', cw, pw: cw * 2, ph: ch * 2 });
+      ver.thumb = makeThumb(path.join(this.p.assets, stem + '.png'), cw * 2);
+    } else if (a.kind === 'image') {
       let file: string;
       if (a.asset) file = path.join(this.p.assets, path.basename(a.asset));
       else if (a.path) {
@@ -92,7 +107,7 @@ export class Store {
     else if (a.kind === 'link') { if (!a.url) throw new Error('link needs a url'); ver.url = a.url; }
 
     if (!it) {
-      it = { id: `i${n}`, key, kind: a.kind, x: 0, y: 0, w: 0, h: 0, z: n, state: 'active', versions: [],
+      it = { id: `i${n}`, key, kind: a.kind as Kind, x: 0, y: 0, w: 0, h: 0, z: n, state: 'active', versions: [],
         createdBy: by, round: this.board.round, createdAt: now(), rev, seenByHuman: by === 'human' };
       this.board.items.push(it);
     }
@@ -105,7 +120,10 @@ export class Store {
     else this.fromHuman(it, rev);
 
     // size
-    if (a.kind === 'image') {
+    if (design) {
+      if (isNew) [it.w, it.h] = [ver.cw!, Math.round(ver.ph! / 2)];
+      else it.h = Math.round(it.w * ver.ph! / ver.pw!);
+    } else if (a.kind === 'image') {
       if (isNew || a.width || a.height) [it.w, it.h] = imageBox(ver.pw!, ver.ph!, a.width, a.height);
       else it.h = Math.round(it.w * ver.ph! / ver.pw!);
     } else if (a.kind === 'text') {
@@ -496,7 +514,7 @@ export class Store {
 export function line(s: Store, it: Item): string {
   const v = it.versions[it.versions.length - 1].v;
   const sec = s.board.sections.find(x => x.id === it.section);
-  return `${it.key} v${v} ${it.kind} @${it.x},${it.y} ${it.w}x${it.h}${sec ? ` [${sec.title}]` : ''}`;
+  return `${it.key} v${v} ${kindOf(it)} @${it.x},${it.y} ${it.w}x${it.h}${sec ? ` [${sec.title}]` : ''}`;
 }
 
 function migrate(b: Board): Board {

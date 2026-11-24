@@ -10,7 +10,9 @@ import { hookLine } from './report.ts';
 const HELP = `drawpad: shared visual board for a human and an agent
 
   board [--section S] [--since REV]       compact outline ("unchanged" if nothing moved)
-  add image|text|link <path|text|url|-> --key K [--title T] [--section S]
+  add image|html|text|link <path|text|url|-> --key K [--title T] [--section S]
+      html: your .html/.svg file (any design); --width = CSS width (default 1280, then kept),
+      height = full page unless --height. Edit the file, re-add same key = new version
       [--below K | --right-of K | --in-row-with K | --at x,y] [--width W] [--height H]
       [--note N] [--commit C] [--launch L] [--files a,b]   same key = new version
   add --many items.json                   [{kind,key,path|text|url,section,...}]
@@ -102,10 +104,10 @@ function addArgs(kind: string, src?: string) {
     below: str('below'), rightOf: str('right-of'), inRowWith: str('in-row-with'),
     width: num('width'), height: num('height'), note: str('note'), color: str('color'), source: source(), by: 'agent',
   };
-  if (kind === 'image') { if (!src) fail('add image needs a path'); a.path = path.resolve(src); }
+  if (kind === 'image' || kind === 'html') { if (!src) fail(`add ${kind} needs a path`); a.path = path.resolve(src); }
   else if (kind === 'link') a.url = src;
   else if (kind === 'text') a.text = src === '-' ? fs.readFileSync(0, 'utf8') : src && fs.existsSync(src) ? fs.readFileSync(src, 'utf8') : src ?? '';
-  else fail(`unknown kind ${kind} (image|text|link; mockup comes in step 2)`);
+  else fail(`unknown kind ${kind} (image|html|text|link)`);
   return a;
 }
 

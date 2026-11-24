@@ -1,7 +1,7 @@
 # DrawPad: notes for agents working on this repo
 
 DrawPad is a shared visual board for one human (Pablo) and one coding agent. The agent puts things on it
-(screenshots, notes, later HTML mockups); the human reacts with pinned comments, drawings, notes and frames;
+(screenshots, notes, HTML/SVG designs of anything); the human reacts with pinned comments, drawings, notes and frames;
 the agent reads that feedback as compact text. Design and decisions: `SPEC.md`. Install and controls: `README.md`.
 
 ## Priorities (in order)
@@ -50,6 +50,9 @@ the agent reads that feedback as compact text. Design and decisions: `SPEC.md`. 
 - Human undo is client-side: `act(redo, undo)` pushes inverse ops; creations use the key in the result line.
 - Agent sections only stretch when an item is dragged; drawn frames (with `w/h`) release items dropped
   outside them.
+- Designs (`add html`) are image items whose version has `html` (source copy) and `cw`; the PNG keeps every
+  image feature (crops, drawings) working. Render: `src/images.ts` `renderHtml`. Don't add design templates:
+  the agent is free to make anything, any layout, any number of options.
 - Drawings stuck to an image store 0..1 coords of that image and are burned into its crops.
 
 ## Working on it

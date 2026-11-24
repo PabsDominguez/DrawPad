@@ -1,5 +1,6 @@
 import type { Item } from './types.ts';
 import type { Store } from './store.ts';
+import { kindOf } from './layout.ts';
 
 // Compact text views for the agent. Every byte here costs tokens: keep it terse.
 
@@ -17,7 +18,7 @@ export function boardText(s: Store, since?: number, section?: string): string {
 
   const desc = (it: Item) => {
     const v = cur(it).v;
-    let d = `${it.key} ${it.kind}${v > 1 ? ` v${v}` : ''}`;
+    let d = `${it.key} ${kindOf(it)}${v > 1 ? ` v${v}` : ''}`;
     if (it.state !== 'active') d += ` ${it.state}`;
     if (it.createdBy === 'human') d += ' (human)';
     else if (!it.seenByHuman) d += ' *';

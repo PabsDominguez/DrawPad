@@ -21,6 +21,21 @@ The DrawPad launcher lists every project whose board has been opened (most recen
 one you pick; with a single project it opens it directly. It pins the current Node path; run `drawpad app`
 again after switching Node versions.
 
+## Agent designs
+
+The agent can design anything in HTML or SVG (a website, a screen, an icon, a poster, something new) and
+put it on the board. It writes the file in the project with its own editor, then:
+
+```sh
+drawpad add html design/landing.html --key landing --width 1280 --section "Website"
+# edit the file, then the same command (same key) = v2; --width is remembered
+drawpad add html design/icon.svg --key icon --width 180 --right-of landing
+```
+
+Headless Chrome renders a PNG at 2x (full page height unless `--height`), used when zoomed out and for
+comment crops; zoomed in, the board shows the live page. Relative links (css, fonts, images) load from the
+project. The agent's own words go in text items (`add text`), wherever and however it wants.
+
 ## Claude Code hook
 
 In the project's `.claude/settings.json`, so new feedback shows up in context each turn
