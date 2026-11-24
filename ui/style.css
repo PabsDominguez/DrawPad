@@ -188,3 +188,6 @@ body.cp #view { right: 290px; }
 #cmenu button span { color: var(--dim); }
 #cmenu button:hover { background: var(--accent); color: #fff; }
 #cmenu button:hover span { color: #fffc; }
+/* Live designs sit under an invisible cover: clicks and right-clicks belong to the board, never to the page
+   (WebKit otherwise offers its own "Open Frame…" menu on the iframe). */
+.item:has(> iframe.live)::after { content: ''; position: absolute; inset: 0; }

@@ -65,6 +65,7 @@ try {
   check('html design rendered at full height', /^web v1 html .* 800x\d+/.test(addHtml) && (await byKey('web')).h > 350, addHtml);
   await sleep(1000);
   if (process.env.SHOT) fs.writeFileSync(process.env.SHOT, Buffer.from((await cmd('Page.captureScreenshot')).result.data, 'base64'));
+  check('live design is covered (right-click reaches the board)', await ev(`(()=>{const f=document.querySelector('iframe.live');if(!f)return false;const r=f.getBoundingClientRect();const e=document.elementFromPoint(r.x+r.width/2,r.y+Math.min(r.height/2,100));return e.tagName!=='IFRAME'&&!!e.closest('.item')})()`));
   check('design live up close (project css loads)', await ev(`(()=>{const f=document.querySelector('iframe.live.ready');return !!f && getComputedStyle(f.contentDocument?.body??document.body).backgroundColor})()`) !== false, null);
   const nv = (await byKey('narrow')).versions[0];
   const edges = await ev(`(async()=>{const i=new Image();i.src='/a/${nv.asset}';await i.decode();const c=document.createElement('canvas');c.width=i.width;c.height=i.height;const g=c.getContext('2d');g.drawImage(i,0,0);const px=x=>[...g.getImageData(x,20,1,1).data.slice(0,3)].join();return [i.width,px(1),px(i.width-2)]})()`);
