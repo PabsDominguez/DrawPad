@@ -130,7 +130,8 @@ try {
   const ly = (a.y + a.b) / 2;
   await mouse('mousePressed', a.x + 10, ly); await mouse('mouseMoved', a.x + 20, ly + 5);
   await mouse('mouseMoved', a.r - 10, ly + 10, 8); await mouse('mouseReleased', a.r - 10, ly + 10, 8); await sleep(800);
-  const line = (await board()).items.find(i => i.mark?.on === id1);
+  let line; for (let i = 0; i < 20 && !line; i++) { line = (await board()).items.find(i => i.mark?.on === id1); if (!line) await sleep(200); }
+  if (!line) console.log('DBG hint', await ev(`document.querySelector('#hint').textContent`));
   check('line sticks to s1', line?.mark.on === id1, line?.mark);
   check('shift snaps horizontal', line && Math.abs(line.mark.pts[1] - line.mark.pts[3]) < 1e-6, line?.mark.pts);
 
@@ -179,7 +180,8 @@ try {
   await cmd('Input.dispatchMouseEvent', { type: 'mouseReleased', x: a.cx, y: a.y + 30, button: 'right', buttons: 0, clickCount: 1 }); await sleep(400);
   const menu = await ev(`document.querySelector('#cmenu').hidden ? '' : document.querySelector('#cmenu').textContent`);
   check('right-click menu on a screen', menu.includes('Comment here') && menu.includes('Delete'), menu);
-  await ev(`[...document.querySelectorAll('#cmenu button')].find(b => b.textContent.startsWith('Comment here')).click()`); await sleep(300);
+  const mi = await ev(`(()=>{const r=[...document.querySelectorAll('#cmenu button')].find(b => b.textContent.startsWith('Comment here')).getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})()`);
+  await click(mi); // a real mouse click, not .click()
   await type('From the menu');
   check('menu comment created', (await board()).items.filter(i => i.comment && i.state === 'active').length === nC + 1);
   // Board switcher: menu opens (lists real projects; never clicked here), unknown roots are refused.

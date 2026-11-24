@@ -41,10 +41,14 @@ let browser: Promise<Cdp> | null = null, idleT: NodeJS.Timeout | undefined;
 function launch(): Promise<Cdp> {
   if (!fs.existsSync(CHROME)) throw new Error('rendering designs needs Google Chrome');
   // One profile per project server (a profile can't be shared by two running Chromes); kept, so later starts are fast.
-  const profile = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'render', createHash('md5').update(process.cwd()).digest('hex').slice(0, 10));
+  // Throwaway projects (tests in temp folders) get a throwaway profile, deleted on exit, so they don't pile up.
+  const temp = /^\/(private\/)?(tmp|var\/folders)\//.test(fs.realpathSync(process.cwd()));
+  const profile = temp ? fs.mkdtempSync(path.join(os.tmpdir(), 'drawpad-chrome-'))
+    : path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'render', createHash('md5').update(process.cwd()).digest('hex').slice(0, 10));
   const proc = spawn(CHROME, ['--headless=new', `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',
     '--hide-scrollbars', '--allow-file-access-from-files', '--mute-audio', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
   const kill = () => { try { proc.kill(); } catch { /* gone */ } };
+  if (temp) proc.on('exit', () => fs.rmSync(profile, { recursive: true, force: true }));
   process.once('exit', kill);
   return new Promise((ok, bad) => {
     let err = '';

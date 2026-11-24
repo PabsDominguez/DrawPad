@@ -884,7 +884,8 @@ cmenu.addEventListener('click', e => {
   cmenu.hidden = true;
   if (b) cmenuActs[Number(b.dataset.i)]?.();
 });
-for (const ev of ['pointerdown', 'wheel', 'blur'] as const) window.addEventListener(ev, () => (cmenu.hidden = true), true);
+// Close on any press outside the menu (presses inside must reach its buttons).
+for (const ev of ['pointerdown', 'wheel', 'blur'] as const) window.addEventListener(ev, e => { if (!(e.target instanceof Node && cmenu.contains(e.target))) cmenu.hidden = true; }, true);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') cmenu.hidden = true; });
 
 // Hovering a collapsed pin peeks at its comment.
