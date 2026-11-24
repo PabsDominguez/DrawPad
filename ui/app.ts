@@ -383,7 +383,8 @@ function outline() {
 }
 function status() {
   const waiting = active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow').length;
-  setHTML($('#status'), `<button id="proj" title="Switch board">${esc(board!.name)} ▾</button> · round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`);
+  setHTML($('#proj'), `${esc(board!.name)} ▾`);
+  setHTML($('#status'), `round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`);
 }
 function selbar() {
   const s = $('#selbar'), sec = board!.sections.find(x => x.id === selSec);

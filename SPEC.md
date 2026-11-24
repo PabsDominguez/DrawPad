@@ -322,7 +322,7 @@ Built (step 1 plus Pablo's feedback rounds):
 - Canvas: pan (Space, trackpad, wheel), zoom (pinch, ⌘-scroll, bottom-right control), fit (⇧1), 100% (⇧0).
 - Items: images (paste, drop, agent), text cards and the text tool, links. Undo/redo of all human actions.
 - Selection: box select, Shift-click, ⌘A; move, scale and delete groups; copy/cut/paste.
-- Board switcher: click the board name (top right) to load another project's board in the same window.
+- Board switcher: click the board name (top left) to load another project's board in the same window.
 - Frames/sections: drawn frames (F) or Frame on a selection; move by title, resize from the corner.
 - Comments: pin or region, type (change/question/bug/keep), collapse to pin, hover peek, threads with
   editable replies, resolve; crops (whole image with pin, or region) include the human's drawings.

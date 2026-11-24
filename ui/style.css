@@ -155,9 +155,9 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 .comment .chip[data-act] { cursor: pointer; }
 .item iframe.live { position: absolute; left: 0; top: 0; border: 0; transform-origin: 0 0; pointer-events: none; background: transparent; opacity: 0; }
 .item iframe.live.ready { opacity: 1; }
-#bar #proj { background: none; border: 0; color: var(--fg); padding: 2px 4px; cursor: pointer; font: inherit; }
+#bar #proj { background: none; border: 0; color: var(--fg); font-weight: 600; padding: 3px 6px; cursor: pointer; font: inherit; }
 #bar #proj:hover { background: var(--line); border-radius: 4px; }
-#projmenu { position: fixed; top: 40px; right: 8px; z-index: 50; min-width: 180px; display: flex; flex-direction: column; padding: 4px;
+#projmenu { position: fixed; top: 40px; left: 8px; z-index: 50; min-width: 180px; display: flex; flex-direction: column; padding: 4px;
   background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px #0006; }
 #projmenu[hidden] { display: none; }
 #bar #projmenu button { background: none; border: 0; text-align: left; padding: 6px 10px; border-radius: 4px; color: var(--fg); cursor: pointer; }
