@@ -17,13 +17,19 @@ const TYPES: Record<string, string> = { '.html': 'text/html', '.css': 'text/css'
 
 export function serve(root: string, port = 0): Promise<number> {
   const store = new Store(root);
+  // Exit cleanly on kill (restart), so the hidden render Chrome goes with us ('exit' handler in images.ts).
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.once(sig, () => process.exit(0));
   const stamp = codeStamp();
   const clients = new Set<http.ServerResponse>();
   store.onChange.push(rev => { for (const c of clients) c.write(`data: ${rev}\n\n`); });
 
-  const ops: Record<string, (a: any) => string> = {
-    add: a => store.add(a),
-    many: a => (a.items as any[]).map(x => { try { return store.add(x); } catch (e) { return `${x.key ?? '?'} error: ${(e as Error).message}`; } }).join('\n'),
+  const ops: Record<string, (a: any) => string | Promise<string>> = {
+    add: a => a.kind === 'html' ? store.addDesign(a) : store.add(a),
+    many: async a => {
+      const out: string[] = [];
+      for (const x of a.items as any[]) { try { out.push(await (x.kind === 'html' ? store.addDesign(x) : store.add(x))); } catch (e) { out.push(`${x.key ?? '?'} error: ${(e as Error).message}`); } }
+      return out.join('\n');
+    },
     move: a => store.move(a.id, a.x, a.y, a.w, a.h, a.by, a.section),
     moveSection: a => store.moveSection(a.id, a.dx, a.dy),
     renameSection: a => store.renameSection(a.id, a.title),
@@ -51,7 +57,7 @@ export function serve(root: string, port = 0): Promise<number> {
     unframe: a => store.unframe(a.id, a.restore),
     resizeSection: a => store.resizeSection(a.id, a.x, a.y, a.w, a.h),
     // Several ops as one human action (one undo step).
-    batch: a => (a.ops as any[]).map(o => { const f = ops[o.op]; if (!f || o.op === 'batch') throw new Error(`unknown op ${o.op}`); return f({ by: a.by, ...o }); }).join('\n'),
+    batch: a => (a.ops as any[]).map(o => { const f = ops[o.op]; if (!f || o.op === 'batch') throw new Error(`unknown op ${o.op}`); return f({ by: a.by, ...o }) as string; }).join('\n'),
   };
 
   const tsCache = new Map<string, string>();
@@ -135,7 +141,7 @@ export function serve(root: string, port = 0): Promise<number> {
         const a = JSON.parse((await body(req)).toString());
         const f = ops[a.op];
         if (!f) return send(res, 400, `unknown op ${a.op}`);
-        return send(res, 200, f(a));
+        return send(res, 200, await f(a));
       }
       send(res, 404, 'not found');
     } catch (e) {

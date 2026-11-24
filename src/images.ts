@@ -1,4 +1,5 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,67 +28,112 @@ export function makeThumb(file: string, pw: number): string | undefined {
   } catch { return undefined; }
 }
 
-// Agent designs (HTML or SVG) rendered to PNG by headless Chrome at 2x. No height = the page's full height.
-// The design sits in an iframe of exactly its width (headless windows are at least 500 wide), centred, then cropped
-// (sips crops around the centre). Probes (src/probe.js) run in the same page and report back through the title.
+// Agent designs (HTML or SVG) rendered to PNG at 2x by one hidden headless Chrome that stays running (driven over
+// the DevTools protocol), so renders don't launch Chrome each time. Each render gets its own tab with the exact
+// viewport size. Probes (src/probe.js) run in that tab: size, checks, element under a pin, outline.
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-// Kept between renders: a fresh Chrome profile costs ~3s.
-const PROFILE = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'render');
 const PROBE = fs.readFileSync(new URL('./probe.js', import.meta.url), 'utf8');
+const IDLE_MS = 10 * 60_000;
 
-function page(tmp: string, inner: string, w: number, h: number, call?: string): string[] {
-  const js = call ? `<script>${PROBE}\nf.onload=async()=>{try{const d=f.contentDocument;await d.fonts.ready;document.title='M'+encodeURIComponent(JSON.stringify(${call}))}catch(e){document.title='E'+encodeURIComponent(String(e))}}</script>` : '';
-  const file = path.join(tmp, 'p.html');
-  fs.writeFileSync(file, `<!doctype html><style>html,body{margin:0;overflow:hidden}</style><iframe id=f src="${inner}" style="border:0;display:block;margin:0 auto;width:${w}px;height:${h}px"></iframe>${js}`);
-  return ['--headless=new', `--user-data-dir=${PROFILE}`, '--hide-scrollbars', '--no-first-run', '--allow-file-access-from-files',
-    '--virtual-time-budget=1000', `--window-size=${Math.max(w, 500)},${h}`, ...(call ? ['--dump-dom'] : []), pathToFileURL(file).href];
-}
-const result = (dom: string) => {
-  const m = /<title>([ME])([^<]+)<\/title>/.exec(dom);
-  if (!m) return null;
-  if (m[1] === 'E') throw new Error('probe: ' + decodeURIComponent(m[2]));
-  return JSON.parse(decodeURIComponent(m[2]));
-};
-const OPTS = { encoding: 'utf8' as const, timeout: 30000, maxBuffer: 64e6 };
-const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'drawpad-r-'));
+interface Cdp { send(method: string, params?: object, session?: string): Promise<any>; once(session: string, method: string, ms: number): Promise<any>; close(): void }
+let browser: Promise<Cdp> | null = null, idleT: NodeJS.Timeout | undefined;
 
-export function renderHtml(src: string, outPng: string, w: number, h?: number): { w: number; h: number; warn: string[] } {
+function launch(): Promise<Cdp> {
   if (!fs.existsSync(CHROME)) throw new Error('rendering designs needs Google Chrome');
-  const tmp = tmpDir();
+  // One profile per project server (a profile can't be shared by two running Chromes); kept, so later starts are fast.
+  const profile = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'render', createHash('md5').update(process.cwd()).digest('hex').slice(0, 10));
+  const proc = spawn(CHROME, ['--headless=new', `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run', '--no-default-browser-check',
+    '--hide-scrollbars', '--allow-file-access-from-files', '--mute-audio', 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const kill = () => { try { proc.kill(); } catch { /* gone */ } };
+  process.once('exit', kill);
+  return new Promise((ok, bad) => {
+    let err = '';
+    const t = setTimeout(() => { kill(); bad(new Error('Chrome did not start: ' + err.slice(-300))); }, 20000);
+    proc.on('exit', () => { browser = null; });
+    proc.stderr!.on('data', d => {
+      err += d;
+      const m = /DevTools listening on (ws:\/\/\S+)/.exec(err);
+      if (!m || err === '') return;
+      err = '';
+      clearTimeout(t);
+      const ws = new WebSocket(m[1]);
+      let n = 0;
+      const pend = new Map<number, [(v: any) => void, (e: Error) => void]>(), waits: { s: string; m: string; f: (v: any) => void }[] = [];
+      ws.onmessage = e => {
+        const d = JSON.parse(String(e.data));
+        if (d.id) { const p = pend.get(d.id); pend.delete(d.id); if (d.error) p?.[1](new Error(d.error.message)); else p?.[0](d.result); return; }
+        for (const w of waits.filter(w => w.m === d.method && w.s === d.sessionId)) { waits.splice(waits.indexOf(w), 1); w.f(d.params); }
+      };
+      ws.onopen = () => ok({
+        send: (method, params = {}, sessionId) => new Promise((r, j) => { const id = ++n; pend.set(id, [r, j]); ws.send(JSON.stringify({ id, method, params, sessionId })); }),
+        once: (s, m2, ms) => new Promise((r, j) => { const w = { s, m: m2, f: r }; waits.push(w); setTimeout(() => { if (waits.includes(w)) { waits.splice(waits.indexOf(w), 1); j(new Error(`timeout waiting for ${m2}`)); } }, ms); }),
+        close: () => { ws.close(); kill(); },
+      });
+      ws.onerror = () => bad(new Error('could not connect to Chrome'));
+    });
+  });
+}
+
+// A fresh tab of exactly w x h CSS px at 2x, showing url; fn runs with that tab's session.
+async function withPage<T>(url: string, w: number, h: number, fn: (S: (m: string, p?: object) => Promise<any>) => Promise<T>): Promise<T> {
+  browser ??= launch().catch(e => { browser = null; throw e; });
+  const c = await browser;
+  clearTimeout(idleT);
+  const { targetId } = await c.send('Target.createTarget', { url: 'about:blank' });
   try {
-    let inner = pathToFileURL(src).href;
-    if (src.toLowerCase().endsWith('.svg')) {
-      const f = path.join(tmp, 'svg.html');
-      fs.writeFileSync(f, `<!doctype html><base href="${pathToFileURL(path.dirname(src)).href}/"><style>html,body{margin:0}svg{display:block;width:100vw;height:auto}</style>${fs.readFileSync(src, 'utf8')}`);
-      inner = pathToFileURL(f).href;
-    }
-    // One probe pass: size + checks (layout below the 800px viewport is still real), then the screenshot.
-    const run = (hh: number, call: string) => result(execFileSync(CHROME, page(tmp, inner, w, hh, call), { ...OPTS, stdio: ['ignore', 'pipe', 'ignore'] }));
-    const got: { m: { h: number; sw: number; fails: string[] }; c: string[] } | null = run(h ?? 800, '{m:measure(d),c:checks(d)}');
-    const warn: string[] = [];
-    if (got && h && got.m.h > h + 1) warn.push(`content is ${got.m.h}px tall, cut at --height ${h}`);
-    if (!h) h = Math.min(20000, Math.max(50, got?.m.h ?? 800));
-    if (got && got.m.sw > w + 1) warn.push(`content is ${got.m.sw}px wide, cut at ${w}`);
-    if (got?.m.fails.length) warn.push(`fonts failed to load: ${got.m.fails.join(', ')}`);
-    warn.push(...(got?.c ?? []));
-    execFileSync(CHROME, page(tmp, inner, w, h).toSpliced(-1, 0, `--screenshot=${outPng}`, '--force-device-scale-factor=2'), { stdio: 'ignore', timeout: 30000 });
-    if (!fs.existsSync(outPng)) throw new Error('Chrome did not render the design');
-    if (w < 500) execFileSync('sips', ['-c', String(h * 2), String(w * 2), outPng], { stdio: 'ignore' });
-    const size = imageSize(outPng);
-    if (size && (size[0] !== w * 2 || size[1] !== h * 2)) warn.push(`snapshot is ${size[0] / 2}x${size[1] / 2}, asked ${w}x${h}`);
-    return { w, h, warn };
-  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+    const { sessionId } = await c.send('Target.attachToTarget', { targetId, flatten: true });
+    const S = (m: string, p?: object) => c.send(m, p, sessionId);
+    await S('Page.enable');
+    await S('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: false });
+    const loaded = c.once(sessionId, 'Page.loadEventFired', 15000);
+    await S('Page.navigate', { url });
+    await loaded;
+    return await fn(S);
+  } finally {
+    c.send('Target.closeTarget', { targetId }).catch(() => {});
+    idleT = setTimeout(() => { c.close(); browser = null; }, IDLE_MS);
+    idleT.unref();
+  }
+}
+async function probe(S: (m: string, p?: object) => Promise<any>, call: string): Promise<any> {
+  const r = await S('Runtime.evaluate', { expression: `(async()=>{${PROBE}\nconst d=document;await d.fonts.ready;await new Promise(r=>setTimeout(r,150));return ${call}})()`, awaitPromise: true, returnByValue: true });
+  if (r.exceptionDetails) throw new Error('probe: ' + (r.exceptionDetails.exception?.description ?? r.exceptionDetails.text));
+  return r.result.value;
+}
+
+export async function renderHtml(src: string, outPng: string, w: number, h?: number): Promise<{ w: number; h: number; warn: string[] }> {
+  let url = pathToFileURL(src).href, tmp: string | undefined;
+  if (src.toLowerCase().endsWith('.svg')) {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drawpad-r-'));
+    const f = path.join(tmp, 'svg.html');
+    fs.writeFileSync(f, `<!doctype html><base href="${pathToFileURL(path.dirname(src)).href}/"><style>html,body{margin:0}svg{display:block;width:100vw;height:auto}</style>${fs.readFileSync(src, 'utf8')}`);
+    url = pathToFileURL(f).href;
+  }
+  try {
+    return await withPage(url, w, h ?? 800, async S => {
+      const got: { m: { h: number; sw: number; fails: string[] }; c: string[] } = await probe(S, '{m:measure(d),c:checks(d)}');
+      const warn: string[] = [];
+      if (h && got.m.h > h + 1) warn.push(`content is ${got.m.h}px tall, cut at --height ${h}`);
+      if (got.m.sw > w + 1) warn.push(`content is ${got.m.sw}px wide, cut at ${w}`);
+      if (got.m.fails.length) warn.push(`fonts failed to load: ${got.m.fails.join(', ')}`);
+      warn.push(...got.c);
+      const hh = h ?? Math.min(16000, Math.max(50, got.m.h));
+      if (hh !== (h ?? 800)) { await S('Emulation.setDeviceMetricsOverride', { width: w, height: hh, deviceScaleFactor: 2, mobile: false }); await new Promise(r => setTimeout(r, 150)); }
+      const shot = await S('Page.captureScreenshot', { format: 'png' });
+      fs.writeFileSync(outPng, Buffer.from(shot.data, 'base64'));
+      const size = imageSize(outPng);
+      if (size && (size[0] !== w * 2 || size[1] !== hh * 2)) warn.push(`snapshot is ${size[0] / 2}x${size[1] / 2}, asked ${w}x${hh}`);
+      return { w, h: hh, warn };
+    });
+  } finally { if (tmp) fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
 // Runs a probe (src/probe.js expression over `d`) on a stored design (assets/*.html, whose <base> points at /p/).
-export function probeDesign(htmlAsset: string, root: string, w: number, h: number, call: string): Promise<unknown> {
-  const tmp = tmpDir(), f = path.join(tmp, 'd.html');
+export async function probeDesign(htmlAsset: string, root: string, w: number, h: number, call: string): Promise<unknown> {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drawpad-r-')), f = path.join(tmp, 'd.html');
   fs.writeFileSync(f, fs.readFileSync(htmlAsset, 'utf8').replace(/<base href="\/p\//, `<base href="${pathToFileURL(root).href}/`));
-  return new Promise((ok, bad) => execFile(CHROME, page(tmp, pathToFileURL(f).href, w, h, call), OPTS, (e, out) => {
-    fs.rmSync(tmp, { recursive: true, force: true });
-    if (e) return bad(e);
-    try { ok(result(out)); } catch (x) { bad(x); }
-  }));
+  try { return await withPage(pathToFileURL(f).href, w, h, S => probe(S, call)); }
+  finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
 // Size an SVG asks for (width/height or viewBox), for its default board size.

@@ -12,6 +12,7 @@ export interface AddArgs {
   at?: [number, number]; below?: string; rightOf?: string; inRowWith?: string;
   width?: number; height?: number; pw?: number; ph?: number;
   source?: Source; note?: string; by?: By; color?: string;
+  rendered?: { png: string; w: number; h: number; warn: string[] }; // designs: made by addDesign
 }
 
 const now = () => new Date().toISOString();
@@ -82,9 +83,9 @@ export class Store {
     if (design) {
       if (!a.path || !fs.existsSync(a.path)) throw new Error(`no file ${a.path}`);
       const stem = `${key.replace(/[^\w.-]/g, '_')}-v${ver.v}`, prev = it?.versions.at(-1);
-      const cw = Math.round(a.width ?? prev?.cw ?? svgSize(a.path)?.[0] ?? 1280);
-      const h = a.height ?? (a.path.toLowerCase().endsWith('.svg') ? svgSize(a.path)?.[1] : undefined);
-      const { h: ch, warn } = renderHtml(a.path, path.join(this.p.assets, stem + '.png'), cw, h && Math.round(h * cw / (svgSize(a.path)?.[0] ?? cw)));
+      if (!a.rendered) throw new Error('designs go through addDesign');
+      const { w: cw, h: ch, warn } = a.rendered;
+      fs.renameSync(a.rendered.png, path.join(this.p.assets, stem + '.png'));
       // Source copy for the live view; <base> points at its folder (served under /p/) so relative files load.
       const rel = path.relative(this.root, path.dirname(a.path));
       let src = fs.readFileSync(a.path, 'utf8');
@@ -153,6 +154,20 @@ export class Store {
     if (a.kind === 'link' && by === 'human' && !a.title) this.fetchTitle(it, ver.url!);
     this.save();
     return line(this, it) + [...renderWarn, ...problems].map(p => `\n  ! ${p}`).join('');
+  }
+
+  // Designs render first (async, in the shared headless Chrome), then go in like any add.
+  async addDesign(a: AddArgs): Promise<string> {
+    if (!a.path || !fs.existsSync(a.path)) throw new Error(`no file ${a.path}`);
+    const prev = a.key ? this.board.items.find(i => i.key === a.key)?.versions.at(-1) : undefined;
+    const svg = a.path.toLowerCase().endsWith('.svg') ? svgSize(a.path) : null;
+    const cw = Math.round(a.width ?? prev?.cw ?? svg?.[0] ?? 1280);
+    const h = a.height ?? (svg ? Math.round(svg[1] * cw / svg[0]) : undefined);
+    const png = path.join(this.p.assets, `.render-${Date.now()}${Math.random().toString(36).slice(2, 6)}.png`);
+    try {
+      const r = await renderHtml(a.path, png, cw, h);
+      return this.add({ ...a, kind: 'html', rendered: { png, ...r } });
+    } finally { fs.rmSync(png, { force: true }); }
   }
 
   private async fetchTitle(it: Item, url: string) {
