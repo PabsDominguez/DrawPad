@@ -119,7 +119,7 @@ export function serve(root: string, port = 0): Promise<number> {
         const QUIET = 8000, t = Number(u.searchParams.get('timeout') ?? 0), until = t ? Date.now() + t * 1000 : Infinity;
         const tick = setInterval(() => {
           if (res.writableEnded) return clearInterval(tick);
-          if (store.pending().total && Date.now() - store.lastHuman >= QUIET) { clearInterval(tick); send(res, 200, hookLine(store.pending())); }
+          if (store.pending().total && Date.now() - store.lastHuman >= QUIET) { clearInterval(tick); send(res, 200, u.searchParams.get('feedback') ? feedbackText(store, {}) : hookLine(store.pending())); }
           else if (Date.now() >= until) { clearInterval(tick); send(res, 200, 'timeout'); }
         }, 500);
         req.on('close', () => clearInterval(tick));

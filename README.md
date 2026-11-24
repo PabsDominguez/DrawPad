@@ -53,8 +53,9 @@ In the project's `.claude/settings.json`, so new feedback shows up in context ea
 { "hooks": { "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "drawpad hook" } ] } ] } }
 ```
 
-Or run `drawpad wait` as a background command; it returns once feedback is waiting and the human
-has paused for ~8 seconds.
+Or, hands-free: the agent runs `drawpad wait --feedback` as a background command. It returns the feedback once
+some is waiting and the human has paused for ~8 seconds; Claude Code wakes the agent when it returns, so it
+acts without being told. The agent starts it again after each round.
 
 ## Human controls
 

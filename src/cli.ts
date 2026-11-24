@@ -27,12 +27,13 @@ const HELP = `drawpad: shared visual board for a human and an agent
   arrow <from> <to> [--point x,y] [--label L]
   section "Title" [keys...]  move <key> --at x,y  archive|restore <key>
   hook                       one line when feedback waits (UserPromptSubmit hook)
-  wait [--timeout S]         blocks until feedback waits and the human paused ~8s
+  wait [--timeout S] [--feedback]   blocks until feedback waits and the human paused ~8s;
+      --feedback prints it (= feedback). Run in the background, start again after handling it
   open                       board in its own window
   app                        make ~/Applications/DrawPad.app (pick a project, open its board)
   serve [--port P]  url  stats`;
 
-const BOOL = new Set(['crops', 'json', 'help', 'quiet']);
+const BOOL = new Set(['crops', 'json', 'help', 'quiet', 'feedback']);
 const argv = process.argv.slice(2);
 const pos: string[] = [];
 const fl: Record<string, string | true> = {};
@@ -234,7 +235,7 @@ async function main() {
       if (!findRoot()) return;
       return out(hookLine(new Store(root).pending()));
     }
-    case 'wait': return out(await api(`/api/wait?timeout=${num('timeout') ?? 0}`));
+    case 'wait': return out(await api(`/api/wait?timeout=${num('timeout') ?? 0}${fl.feedback ? '&feedback=1' : ''}`));
     case 'shot': return fail('shot needs the headless renderer (build step 2); use `drawpad board` for now');
     case 'stats': {
       const f = paths(root).stats;
