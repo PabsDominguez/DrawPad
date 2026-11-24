@@ -12,7 +12,9 @@ const HELP = `drawpad: shared visual board for a human and an agent
   board [--section S] [--since REV]       compact outline ("unchanged" if nothing moved)
   add image|html|text|link <path|text|url|-> --key K [--title T] [--section S]
       html: your .html/.svg file (any design); --width = CSS width (default 1280, then kept),
-      height = full page unless --height. Edit the file, re-add same key = new version
+      height = full page unless --height. Edit the file, re-add same key = new version.
+      Result lists problems (clipping, fonts, cut text, <11px, contrast, data-tap <44)
+  outline <key>                           a design's visible text: x,y wxh size [b] text
       [--below K | --right-of K | --in-row-with K | --at x,y] [--width W] [--height H]
       [--note N] [--commit C] [--launch L] [--files a,b]   same key = new version
   add --many items.json                   [{kind,key,path|text|url,section,...}]
@@ -219,6 +221,7 @@ async function main() {
       fs.rmSync(tmp, { force: true });
       return out(res);
     }
+    case 'outline': return out(await api('/api/outline?key=' + encodeURIComponent(pos[0] ?? '')));
     case 'feedback': return out(await api('/api/feedback', { since: num('since'), crops: !!fl.crops, json: !!fl.json }));
     case 'crop': {
       const b = JSON.parse(await api('/api/board'));

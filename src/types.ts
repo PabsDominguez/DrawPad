@@ -32,6 +32,7 @@ export interface Comment {
   region?: [number, number, number, number]; // x, y, w, h item-local
   crop?: string;            // asset file
   artifact?: string;        // key the agent named when marking done
+  el?: string;              // designs: the element under the pin (selector, size, colours, text)
 }
 
 // The human's drawings. On an item (on = its id): pts are 0..1 of that item and move with it. Otherwise world coords.

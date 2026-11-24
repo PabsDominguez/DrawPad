@@ -5,6 +5,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.ts';
 import { codeStamp } from './project.ts';
+import { probeDesign } from './images.ts';
 import { boardText, feedbackText, hookLine } from './report.ts';
 
 // Single writer for one project's .drawpad/. Web UI, CLI and hook are thin clients of this API.
@@ -93,6 +94,12 @@ export function serve(root: string, port = 0): Promise<number> {
       if (p === '/api/text/board') {
         const since = u.searchParams.get('since');
         return send(res, 200, boardText(store, since ? Number(since) : undefined, u.searchParams.get('section') ?? undefined));
+      }
+      if (p === '/api/outline') { // a design's visible text with positions (x,y wxh size [b] text)
+        const it = store.find(u.searchParams.get('key') ?? ''), v = it.versions.at(-1)!;
+        if (!v.html || !v.cw || !v.ph) return send(res, 400, `${it.key} is not a design`);
+        const lines = await probeDesign(path.join(store.p.assets, v.html), root, v.cw, v.ph / 2, 'outline(d)') as string[];
+        return send(res, 200, [`${it.key} v${v.v} ${v.cw}x${v.ph / 2}`, ...lines].join('\n'));
       }
       if (p === '/api/feedback') {
         const a = JSON.parse((await body(req)).toString() || '{}');

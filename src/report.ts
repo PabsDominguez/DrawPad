@@ -92,6 +92,7 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
     if (k.region) l += ` region ${k.region[2].toFixed(2)}x${k.region[3].toFixed(2)}`;
     if (k.crop && !o.crops) l += ' (crop)';
     const lines = [`${l}: ${cur(c).text}`];
+    if (k.el) lines.push(`  el: ${k.el}`);
     const src = t?.source;
     if (src) lines.push('  src: ' + [src.commit && `commit=${src.commit}`, src.launch && `launch="${src.launch}"`, src.files?.length && `files=${src.files.join(',')}`, src.note].filter(Boolean).join(' '));
     if (k.crop && o.crops) lines.push(`  crop: ${A}${k.crop}`);

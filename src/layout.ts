@@ -18,8 +18,8 @@ export function sectionRect(b: Board, s: Section, ignore?: string): Rect {
   return { x: x0, y: y0, w: Math.max(...m.map(i => i.x + i.w)) - x0, h: Math.max(...m.map(i => i.y + i.h)) - y0 };
 }
 
-export function contentBottom(b: Board): number | null {
-  const bottoms = [...solid(b).map(i => i.y + i.h), ...b.sections.map(s => { const r = sectionRect(b, s); return r.y + r.h; })];
+export function contentBottom(b: Board, ignore?: string): number | null {
+  const bottoms = [...solid(b).filter(i => i.id !== ignore).map(i => i.y + i.h), ...b.sections.map(s => { const r = sectionRect(b, s); return r.y + r.h; })];
   return bottoms.length ? Math.max(...bottoms) : null;
 }
 
@@ -46,7 +46,7 @@ export function place(b: Board, it: Item, o: PlaceOpts): string[] {
       if (x + it.w > sec.x + ROW_MAX) { x = sec.x; y = Math.max(...m.map(i => i.y + i.h)) + GAP; }
     }
   } else {
-    const bottom = contentBottom(b);
+    const bottom = contentBottom(b, it.id);
     x = 0; y = bottom === null ? 0 : bottom + SECTION_GAP;
   }
   it.x = Math.round(x); it.y = Math.round(y);

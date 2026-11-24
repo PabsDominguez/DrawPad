@@ -26,6 +26,7 @@ dp('add', 'image', 'a.png', '--key', 's1', '--section', 'Screens');
 dp('add', 'image', 'a.png', '--key', 's2', '--section', 'Screens');
 fs.writeFileSync(path.join(dir, 'page.css'), 'body{margin:0;background:#123;color:#fff;font:40px system-ui}');
 fs.writeFileSync(path.join(dir, 'page.html'), '<!doctype html><link rel=stylesheet href=page.css><h1 id=t>Design</h1><div style="height:300px"></div>');
+fs.writeFileSync(path.join(dir, 'tiny.html'), '<!doctype html><p style="font-size:9px">fine print</p>');
 const addHtml = dp('add', 'html', 'page.html', '--key', 'web', '--width', '800');
 fs.writeFileSync(path.join(dir, 'narrow.html'), '<!doctype html><body style="margin:0"><div style="height:60px;background:#0f0;border-left:10px solid red;border-right:10px solid blue"></div>');
 dp('add', 'html', 'narrow.html', '--key', 'narrow', '--width', '402');
@@ -68,6 +69,13 @@ try {
   const nv = (await byKey('narrow')).versions[0];
   const edges = await ev(`(async()=>{const i=new Image();i.src='/a/${nv.asset}';await i.decode();const c=document.createElement('canvas');c.width=i.width;c.height=i.height;const g=c.getContext('2d');g.drawImage(i,0,0);const px=x=>[...g.getImageData(x,20,1,1).data.slice(0,3)].join();return [i.width,px(1),px(i.width-2)]})()`);
   check('narrow design not cropped (402 < 500 min window)', JSON.stringify(edges) === '[804,"255,0,0","0,0,255"]', edges);
+  check('add html reports problems', /text under 11px/.test(dp('add', 'html', 'tiny.html', '--key', 'tiny', '--width', '300')));
+  await fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify({ op: 'comment', target: 'web', text: 'bigger', point: [0.1, 0.05], by: 'human' }) });
+  await sleep(2500);
+  const pinFb = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text();
+  check('pin on a design names its element', /el: #t \d+x\d+ .*"Design"/.test(pinFb), pinFb);
+  await fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify({ op: 'archive', id: (await board()).items.find(i => i.comment)?.key }) });
+  check('outline lists visible text', /\d+px b Design/.test(dp('outline', 'web')));
   const id1 = (await byKey('s1')).id, id2 = (await byKey('s2')).id;
   let a = await box(`[data-id="${id1}"]`), b = await box(`[data-id="${id2}"]`);
 
@@ -93,7 +101,7 @@ try {
 
   // Replies: written in place, editable, deletable, undo restores.
   for (const t of ['first', 'second']) { await ev(`document.querySelector('[data-act=reply]').click()`); await sleep(300); await type(t); }
-  const thread = async () => (await board()).items.find(i => i.comment).comment.thread.map(t => t.text);
+  const thread = async () => (await board()).items.find(i => i.comment && i.state === 'active').comment.thread.map(t => t.text);
   check('two replies', JSON.stringify(await thread()) === '["first","second"]', await thread());
   await ev(`document.querySelectorAll('[data-act=deleteReply]')[1].click()`); await sleep(700);
   check('delete reply', (await thread()).length === 1);
@@ -121,11 +129,12 @@ try {
   check('drawing reported', /line on s1/.test(fb), fb);
 
   // Copy / paste duplicates at the cursor.
-  await fit(); a = await box(`[data-id="${id1}"]`); await click([a.cx, a.cy + 100]);
+  await fit(); a = await box(`[data-id="${id1}"]`); await click([a.cx, a.y + (a.b - a.y) * 0.25]);
   const marker = await ev(`(()=>{const dt=new DataTransfer();document.dispatchEvent(new ClipboardEvent('copy',{clipboardData:dt,bubbles:true}));return dt.getData('text/plain')})()`);
   await mouse('mouseMoved', 300, 300);
   await ev(`(()=>{const dt=new DataTransfer();dt.setData('text/plain',${JSON.stringify(marker)});document.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true}))})()`); await sleep(1200);
-  check('paste makes a copy', (await board()).items.filter(i => i.kind === 'image' && !i.versions[0].html && i.state === 'active').length === 3);
+  const imgs = (await board()).items.filter(i => i.kind === 'image' && i.state === 'active').map(i => i.key);
+  check('paste makes a copy', (await board()).items.filter(i => i.kind === 'image' && !i.versions[0].html && i.state === 'active').length === 3, imgs);
 
   // Frame tool: drawn box adopts what is inside.
   await fit(); b = await box(`[data-id="${id2}"]`);

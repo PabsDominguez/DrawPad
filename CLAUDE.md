@@ -36,6 +36,8 @@ the agent reads that feedback as compact text. Design and decisions: `SPEC.md`. 
   comments, replies, marks, archive, rounds). Every mutation: bump revision, set `it.rev`, `save()`.
 - `src/layout.ts` placement for agent items (semantic: section/below/rightOf, overlap resolution) and
   `sectionRect` (members' box, never smaller than a drawn frame; comments don't stretch it).
+- `src/images.ts` image sizes/thumbs (sips), design render + probes via headless Chrome; `src/probe.js` runs inside
+  that page (checks, element under a pin, outline). Plain JS, inlined as a script.
 - `src/report.ts` the agent's text views. **Every byte costs tokens.**
 - `src/cli.ts` verbs, server start/restart, `open` (Chrome app window), `app`/`pick` (the global
   `~/Applications/DrawPad.app` launcher and project registry).

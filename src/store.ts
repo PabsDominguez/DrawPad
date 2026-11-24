@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Board, By, Kind, Intent, Item, Mark, Reply, Section, Source, Version } from './types.ts';
 import { ensureDirs, paths, writeAtomic } from './project.ts';
-import { imageSize, makeThumb, renderHtml, svgSize } from './images.ts';
+import { imageSize, makeThumb, probeDesign, renderHtml, svgSize } from './images.ts';
 import { GAP, PAD, SECTION_GAP, contentBottom, imageBox, kindOf, moveSection, place, sectionRect, solid, textHeight } from './layout.ts';
 
 export interface AddArgs {
@@ -338,7 +338,9 @@ export class Store {
     for (const a of this.board.items) if (a.kind === 'arrow' && a.from === it.id && a.to === it.comment.target) { a.toPoint = point; a.rev = rev; }
     it.rev = rev;
     if (it.createdBy === 'human') this.fromHuman(it, rev);
+    delete it.comment.el;
     this.save();
+    this.pinElement(it);
     return `${it.key} pin @${point.map(v => v.toFixed(2))}`;
   }
 
@@ -399,7 +401,24 @@ export class Store {
     place(this.board, it, { at: c.at ?? (blocked ? [t.x, t.y + t.h + GAP] : [right.x, right.y]), flow: 'down' });
     this.arrowNoSave(it, t, c.by, c.point);
     this.save();
+    this.pinElement(it);
     return line(this, it);
+  }
+
+  // Designs: finds the element under a comment's pin (headless Chrome, ~1s, in the background) so the agent
+  // reads "on .row:nth-child(3) .zone 96x52 bg #d63a53" instead of guessing from a crop.
+  private async pinElement(c: Item) {
+    const k = c.comment!, t = this.board.items.find(i => i.id === k.target);
+    const v = t?.versions.find(x => x.v === k.targetVersion);
+    if (!v?.html || !v.cw || !v.ph) return;
+    const p = k.region ? [k.region[0] + k.region[2] / 2, k.region[1] + k.region[3] / 2] : k.point;
+    if (!p) return;
+    const w = v.cw, h = v.ph / 2, before = JSON.stringify([k.point, k.region]);
+    try {
+      const el = await probeDesign(path.join(this.p.assets, v.html), this.root, w, h, `elAt(d,${p[0] * w},${p[1] * h})`);
+      if (typeof el !== 'string' || JSON.stringify([k.point, k.region]) !== before) return; // moved meanwhile
+      k.el = el; c.rev = this.bump(); this.save();
+    } catch { /* the crop still works */ }
   }
   private arrowNoSave(from: Item, to: Item, by: By, toPoint?: [number, number]) {
     const n = this.nid();

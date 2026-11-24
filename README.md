@@ -34,7 +34,15 @@ drawpad add html design/icon.svg --key icon --width 180 --right-of landing
 
 Headless Chrome renders a PNG at 2x (full page height unless `--height`), used when zoomed out and for
 comment crops; zoomed in, the board shows the live page. Relative links (css, fonts, images) load from the
-project. The agent's own words go in text items (`add text`), wherever and however it wants.
+project, so link shared CSS and fonts instead of embedding them in every file. The agent's own words go in text
+items (`add text`), wherever and however it wants.
+
+What the agent gets back without reading images:
+- `add html` lists problems found in the render: content cut at the frame, failed fonts, cut-off text, text
+  under 11px, low contrast (WCAG), elements marked `data-tap` under 44px, snapshot size mismatch. Nothing when clean.
+- Comments pinned on a design name the element under the pin in feedback:
+  `el: .row:nth-child(3) .zone 96x52 bg #d63a53 color #ffffff 15px "Legs"`.
+- `drawpad outline <key>`: the design's visible text with positions and sizes.
 
 ## Claude Code hook
 
