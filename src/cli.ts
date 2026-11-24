@@ -14,7 +14,8 @@ const HELP = `drawpad: shared visual board for a human and an agent
       html: your .html/.svg file (any design); --width = CSS width (default 1280, then kept),
       height = full page unless --height. Edit the file, re-add same key = new version.
       Link project files (css, fonts, images) by relative path; don't embed base64.
-      Result: problems (clipping, fonts, cut text, <11px, contrast, data-tap <44) or "checks ok"
+      Result: problems (clipping, fonts, cut text, <11px, contrast, data-tap <44) or "checks ok"; a re-add
+      only lists new ones. data-drawpad-ignore on an element skips its checks (deliberate choices)
   outline <key> [--boxes]                 a design's visible text (x,y wxh size [b] text); --boxes adds
                                           images and visible boxes [selector bg]
   title <key> "Title"                     rename an item (no new version)
@@ -33,7 +34,7 @@ const HELP = `drawpad: shared visual board for a human and an agent
   hook [--wait S]            Claude Code hook (UserPromptSubmit, PostToolUse, Stop): tells the agent when
                              sent feedback waits; on Stop, --wait S holds up to S seconds for a Send
   wait [--timeout S] [--feedback] [--section S]   blocks until feedback waits and the human paused ~8s;
-      --feedback prints it (= feedback). Run in the background, start again after handling it
+      --feedback prints it (= feedback). Not needed when the Stop hook is set (it hands feedback over)
   open                       board in its own window
   app                        build ~/Applications/DrawPad.app (native board window, own Dock icon)
   serve [--port P]  url  stats
@@ -285,10 +286,15 @@ async function main() {
       if (!process.stdin.isTTY) try { ev = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch { /* manual run */ }
       const line = () => hookLine(new Store(root).pending(false, str('section')));
       if (ev.hook_event_name === 'Stop') {
-        if (ev.stop_hook_active) return; // already continued once for this stop: let it stop
+        // No stop_hook_active guard: this only continues the agent when there is real sent feedback, and handing it
+        // over marks it delivered, so it can't loop; a back-and-forth (reply, reply…) keeps flowing.
         let l = line();
         for (const until = Date.now() + (num('wait') ?? 0) * 1000; !l && Date.now() < until; l = line()) await new Promise(r => setTimeout(r, 2000));
-        if (l) process.stdout.write(JSON.stringify({ decision: 'block', reason: l }));
+        if (!l) return;
+        // The feedback itself (through the server, the board's single writer): nothing to fetch, nothing to race.
+        let fb = l;
+        try { fb = await api('/api/feedback', { section: str('section') }); } catch { /* fall back to the pointer line */ }
+        if (fb && fb !== 'no new feedback') process.stdout.write(JSON.stringify({ decision: 'block', reason: 'DrawPad feedback (already marked read):\n' + fb }));
         return;
       }
       const l = line();

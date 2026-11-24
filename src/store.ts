@@ -91,7 +91,10 @@ export class Store {
       let src = fs.readFileSync(a.path, 'utf8');
       if (!rel.startsWith('..')) { const base = `<base href="/p/${rel ? encodeURI(rel) + '/' : ''}">`; src = /<head[^>]*>/i.test(src) ? src.replace(/<head[^>]*>/i, m => m + base) : base + src; }
       fs.writeFileSync(path.join(this.p.assets, stem + '.html'), src);
-      renderWarn = warn;
+      // Known warnings (same as the previous version) are deliberate or already judged: one summary line instead.
+      ver.warn = warn;
+      const known = new Set(it?.versions.at(-1)?.warn ?? []), fresh = warn.filter(w => !known.has(w)), same = warn.length - fresh.length;
+      renderWarn = [...fresh, ...(same ? [`(${same} known warning${same > 1 ? 's' : ''} unchanged)`] : [])];
       Object.assign(ver, { asset: stem + '.png', html: stem + '.html', cw, pw: cw * 2, ph: ch * 2 });
       ver.thumb = makeThumb(path.join(this.p.assets, stem + '.png'), cw * 2);
     } else if (a.kind === 'image') {

@@ -84,7 +84,11 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
   // Comments the agent has read but not answered or marked done: never let them hide behind "no new".
   const owed = scoped.filter(c => c.comment && c.state === 'active' && c.createdBy === 'human' && c.comment.status === 'open' && c.comment.intent !== 'keep' &&
     c.delivered && (c.comment.thread.at(-1)?.by ?? 'human') === 'human' && !items.includes(c));
-  const owedText = owed.length ? `\nstill waiting on you (${owed.length}): ` + owed.map(c => `${c.key} on ${byId.get(c.comment!.target!)?.key} "${clip(cur(c).text ?? '', 50)}"`).join('; ') : '';
+  // In full: the agent may have lost the round it was delivered in (another wait/hook took it).
+  const owedText = owed.length ? `\nstill waiting on you (${owed.length}):\n` + owed.map(c => {
+    const last = c.comment!.thread.at(-1);
+    return `${c.key} [${c.comment!.intent}] on ${byId.get(c.comment!.target!)?.key}: ${cur(c).text}${last ? `\n  last (${last.by === 'agent' ? 'you' : 'human'}): ${last.text}` : ''}`;
+  }).join('\n') : '';
   if (!total) return 'no new feedback' + owedText;
 
   const out = [`feedback rev ${b.revision}: ${todo.length} to-do, ${keep.length} keep, ${news.length} new, ${reacts.length} reactions${marks.length ? `, ${marks.length} drawings` : ''}`];

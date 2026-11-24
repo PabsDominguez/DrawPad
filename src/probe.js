@@ -45,7 +45,7 @@ function measure(d) {
 function checks(d) {
   const cut = [], tiny = [], low = [], tap = [];
   for (const el of d.body.querySelectorAll('*')) {
-    if (!visible(d, el)) continue;
+    if (!visible(d, el) || el.closest('[data-drawpad-ignore]')) continue; // deliberate: the agent opted out
     const s = css(d, el), t = ownText(el);
     if (t) {
       if ((el.scrollWidth > el.clientWidth + 1 && s.overflowX !== 'visible') || (el.scrollHeight > el.clientHeight + 1 && s.overflowY !== 'visible' && s.overflowY !== 'auto' && s.overflowY !== 'scroll'))
