@@ -132,6 +132,7 @@ function projects(): string[] {
   try { return (JSON.parse(fs.readFileSync(REGISTRY, 'utf8')) as string[]).filter(r => fs.existsSync(path.join(r, '.drawpad', 'board.json'))); } catch { return []; }
 }
 function remember(r: string) {
+  if (/^\/(private\/)?(tmp|var\/folders)\//.test(fs.realpathSync(r))) return; // throwaway test projects
   fs.mkdirSync(path.dirname(REGISTRY), { recursive: true });
   fs.writeFileSync(REGISTRY, JSON.stringify([r, ...projects().filter(x => x !== r)], null, 1));
 }
