@@ -3,7 +3,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { findRoot, paths, ensureDirs, codeStamp, preferredPort } from './project.ts';
+import { findRoot, paths, ensureDirs, codeStamp, preferredPort, projects, remember } from './project.ts';
 import { Store } from './store.ts';
 import { hookLine } from './report.ts';
 
@@ -124,17 +124,6 @@ function openWindow(url: string) {
   // Chrome brings the new window to the front; the page then closes any older window of the same board.
   // Through LaunchServices (`open -n`) so macOS brings it to the front even when started from a launcher.
   execFileSync('open', ['-n', '-a', CHROME.replace(/\/Contents\/.*/, ''), '--args', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', `--app=${url}`]);
-}
-
-// Projects that have had a board open, most recent first (for the DrawPad launcher's list).
-const REGISTRY = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'projects.json');
-function projects(): string[] {
-  try { return (JSON.parse(fs.readFileSync(REGISTRY, 'utf8')) as string[]).filter(r => fs.existsSync(path.join(r, '.drawpad', 'board.json'))); } catch { return []; }
-}
-function remember(r: string) {
-  if (/^\/(private\/)?(tmp|var\/folders)\//.test(fs.realpathSync(r))) return; // throwaway test projects
-  fs.mkdirSync(path.dirname(REGISTRY), { recursive: true });
-  fs.writeFileSync(REGISTRY, JSON.stringify([r, ...projects().filter(x => x !== r)], null, 1));
 }
 
 // `drawpad pick`: choose a project from a small macOS list and open its board.

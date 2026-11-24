@@ -4,7 +4,8 @@ import path from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.ts';
-import { codeStamp } from './project.ts';
+import { codeStamp, projects } from './project.ts';
+import { execFile } from 'node:child_process';
 import { probeDesign } from './images.ts';
 import { boardText, feedbackText, hookLine } from './report.ts';
 
@@ -94,6 +95,14 @@ export function serve(root: string, port = 0): Promise<number> {
       if (p === '/api/text/board') {
         const since = u.searchParams.get('since');
         return send(res, 200, boardText(store, since ? Number(since) : undefined, u.searchParams.get('section') ?? undefined));
+      }
+      if (p === '/api/projects') return send(res, 200, JSON.stringify({ root, list: projects().map(r => ({ root: r, name: path.basename(r) })) }), 'application/json');
+      if (p === '/api/switch' && req.method === 'POST') { // another board: start its server, return its URL
+        const to = JSON.parse((await body(req)).toString()).root;
+        if (!projects().includes(to)) return send(res, 400, 'unknown project');
+        const cli = fileURLToPath(new URL('./cli.ts', import.meta.url));
+        return execFile(process.execPath, ['--disable-warning=ExperimentalWarning', cli, 'url'], { cwd: to, timeout: 15000 },
+          (e, out) => e ? send(res, 500, String(e)) : send(res, 200, out.trim()));
       }
       if (p === '/api/outline') { // a design's visible text with positions (x,y wxh size [b] text)
         const it = store.find(u.searchParams.get('key') ?? ''), v = it.versions.at(-1)!;

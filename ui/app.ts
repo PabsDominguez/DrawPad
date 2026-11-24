@@ -383,7 +383,7 @@ function outline() {
 }
 function status() {
   const waiting = active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow').length;
-  $('#status').textContent = `${board!.name} · round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`;
+  setHTML($('#status'), `<button id="proj" title="Switch board">${esc(board!.name)} ▾</button> · round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`);
 }
 function selbar() {
   const s = $('#selbar'), sec = board!.sections.find(x => x.id === selSec);
@@ -1024,3 +1024,20 @@ new EventSource('/api/events').onmessage = async e => {
     bc.postMessage('opened');
   }
 };
+
+// Board switcher: the name in the top bar lists every project with a board; picking one loads it in this window.
+document.addEventListener('click', async e => {
+  const m = $('#projmenu'), t = e.target as HTMLElement;
+  if (t.closest('#proj')) {
+    if (!m.hidden) { m.hidden = true; return; }
+    const { root, list } = await (await fetch('/api/projects')).json() as { root: string; list: { root: string; name: string }[] };
+    setHTML(m, list.map(p => `<button data-root="${esc(p.root)}"${p.root === root ? ' class="cur"' : ''} title="${esc(p.root)}">${esc(p.name)}</button>`).join('') || '<i>no other boards</i>');
+    m.hidden = false; return;
+  }
+  const b = t.closest('#projmenu button') as HTMLElement | null;
+  m.hidden = true;
+  if (!b || b.classList.contains('cur')) return;
+  hint('Opening ' + b.textContent + '…');
+  const r = await fetch('/api/switch', { method: 'POST', body: JSON.stringify({ root: b.dataset.root }) });
+  if (r.ok) location.href = await r.text(); else hint('Could not open ' + b.textContent);
+});

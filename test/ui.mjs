@@ -142,6 +142,11 @@ try {
   const bd = await board(), fr = bd.sections.at(-1);
   check('frame adopts s2', fr.w > 0 && bd.items.find(i => i.key === 's2').section === fr.id, fr);
 
+  // Board switcher: menu opens (lists real projects; never clicked here), unknown roots are refused.
+  await ev(`document.querySelector('#proj').click()`); await sleep(500);
+  check('board menu opens', await ev(`!document.querySelector('#projmenu').hidden`));
+  check('switch refuses unknown project', (await fetch(URL_ + 'api/switch', { method: 'POST', body: JSON.stringify({ root: '/etc' }) })).status === 400);
+  if (process.env.SHOT2) fs.writeFileSync(process.env.SHOT2, Buffer.from((await cmd('Page.captureScreenshot')).result.data, 'base64'));
   check('no page errors', errs.length === 0, errs);
 } catch (e) { console.log('FAIL crashed:', e.message); failed++; }
 finally {

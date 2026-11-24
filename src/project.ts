@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 
 // Walks up from cwd looking for a .drawpad folder. Returns the project root or null.
 export function findRoot(start = process.cwd()): string | null {
@@ -51,3 +52,15 @@ export function preferredPort(root: string): number {
   for (const c of path.resolve(root)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return 47100 + (h % 900);
 }
+
+// Projects that have had a board open, most recent first (for the DrawPad launcher's list).
+const REGISTRY = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'projects.json');
+export function projects(): string[] {
+  try { return (JSON.parse(fs.readFileSync(REGISTRY, 'utf8')) as string[]).filter(r => fs.existsSync(path.join(r, '.drawpad', 'board.json'))); } catch { return []; }
+}
+export function remember(r: string) {
+  if (/^\/(private\/)?(tmp|var\/folders)\//.test(fs.realpathSync(r))) return; // throwaway test projects
+  fs.mkdirSync(path.dirname(REGISTRY), { recursive: true });
+  fs.writeFileSync(REGISTRY, JSON.stringify([r, ...projects().filter(x => x !== r)], null, 1));
+}
+
