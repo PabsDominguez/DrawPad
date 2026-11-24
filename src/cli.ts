@@ -285,18 +285,22 @@ async function main() {
       let ev: { hook_event_name?: string; stop_hook_active?: boolean } = {};
       if (!process.stdin.isTTY) try { ev = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch { /* manual run */ }
       const line = () => hookLine(new Store(root).pending(false, str('section')));
+      const act = (s: string) => { try { fs.writeFileSync(path.join(paths(root).dir, 'activity'), `${s} ${Date.now()}`); } catch { /* board view only */ } };
       if (ev.hook_event_name === 'Stop') {
         // No stop_hook_active guard: this only continues the agent when there is real sent feedback, and handing it
         // over marks it delivered, so it can't loop; a back-and-forth (reply, reply…) keeps flowing.
         let l = line();
+        act(l ? 'working' : num('wait') ? 'waiting' : 'idle');
         for (const until = Date.now() + (num('wait') ?? 0) * 1000; !l && Date.now() < until; l = line()) await new Promise(r => setTimeout(r, 2000));
-        if (!l) return;
+        if (!l) { act('idle'); return; }
+        act('working');
         // The feedback itself (through the server, the board's single writer): nothing to fetch, nothing to race.
         let fb = l;
         try { fb = await api('/api/feedback', { section: str('section') }); } catch { /* fall back to the pointer line */ }
         if (fb && fb !== 'no new feedback') process.stdout.write(JSON.stringify({ decision: 'block', reason: 'DrawPad feedback (already marked read):\n' + fb }));
         return;
       }
+      if (ev.hook_event_name) act('working'); // UserPromptSubmit / PostToolUse: the agent is busy
       const l = line();
       if (ev.hook_event_name === 'PostToolUse') {
         const mark = path.join(paths(root).dir, 'hook-last');

@@ -22,6 +22,15 @@ export function serve(root: string, port = 0): Promise<number> {
   const stamp = codeStamp();
   const clients = new Set<http.ServerResponse>();
   store.onChange.push(rev => { for (const c of clients) c.write(`data: ${rev}\n\n`); });
+  // What the agent is doing ("working" / "waiting"), written by the Claude Code hooks; shown live on the board.
+  const actFile = path.join(store.p.dir, 'activity');
+  const activity = () => { try { return fs.readFileSync(actFile, 'utf8').trim(); } catch { return ''; } };
+  let lastAct = activity();
+  fs.watch(store.p.dir, (_e, f) => {
+    if (f !== 'activity') return;
+    const a = activity(); if (a === lastAct) return;
+    lastAct = a; for (const c of clients) c.write(`event: activity\ndata: ${a}\n\n`);
+  });
 
   const ops: Record<string, (a: any) => string | Promise<string>> = {
     add: a => a.kind === 'html' ? store.addDesign(a) : store.add(a),
@@ -96,6 +105,7 @@ export function serve(root: string, port = 0): Promise<number> {
       if (p === '/api/events') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         res.write(`data: ${store.board.revision}\n\n`);
+        if (lastAct) res.write(`event: activity\ndata: ${lastAct}\n\n`);
         clients.add(res); req.on('close', () => clients.delete(res));
         return;
       }

@@ -194,3 +194,17 @@ body.cp #view { right: 290px; }
 .comment .donebar { margin: 8px 0 2px; padding: 6px 9px; border-radius: 7px; background: #3ecf8e22; color: #2fb87a; font-weight: 600; font-size: 12px; }
 body.dark .comment .donebar { color: #5fe0a4; }
 .comment button.primary { background: #3ecf8e; border-color: #3ecf8e; color: #0b2a1c; font-weight: 600; }
+#agent { font-size: 12px; padding: 3px 10px 3px 22px; border-radius: 12px; position: relative; white-space: nowrap; }
+#agent[hidden] { display: none; }
+#agent::before { content: ''; position: absolute; left: 9px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: currentColor; }
+#agent.working { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+#agent.working::before { animation: agentpulse 1.2s ease-in-out infinite; }
+#agent.waiting { color: var(--dim); background: var(--sec); }
+@keyframes agentpulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .3; transform: scale(.6); } }
+/* Where the agent just worked: a soft animated glow around the item. */
+.item.glow { animation: agentglow 6s ease-out forwards; border-radius: 4px; }
+@keyframes agentglow {
+  0%, 60% { box-shadow: 0 0 0 calc(2px * var(--inv)) var(--accent), 0 0 calc(24px * var(--inv)) calc(4px * var(--inv)) color-mix(in srgb, var(--accent) 55%, transparent); }
+  30% { box-shadow: 0 0 0 calc(2px * var(--inv)) var(--accent), 0 0 calc(40px * var(--inv)) calc(10px * var(--inv)) color-mix(in srgb, var(--accent) 35%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}

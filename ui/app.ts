@@ -30,9 +30,16 @@ let byId = new Map<string, Item>();
 
 // ---------- data ----------
 async function load() {
+  const before = new Map([...byId].map(([id, i]) => [id, i.versions.length]));
   board = await (await fetch('/api/board')).json();
   byId = new Map(board!.items.map(i => [i.id, i]));
   render();
+  // Agent work glows for a few seconds where it lands (new items and new versions), like a cursor on the board.
+  if (before.size) for (const it of board!.items) if (it.createdBy === 'agent' && !it.comment && it.kind !== 'arrow' && before.get(it.id) !== it.versions.length) {
+    const el = els.get(it.id); if (!el) continue;
+    el.classList.remove('glow'); void el.offsetWidth; el.classList.add('glow');
+    setTimeout(() => el.classList.remove('glow'), 6000);
+  }
 }
 async function op(o: Op): Promise<string> {
   const r = await fetch('/api/op', { method: 'POST', body: JSON.stringify({ by: 'human', ...o }) });
@@ -1104,7 +1111,18 @@ view$.addEventListener('scroll', () => { view$.scrollTop = 0; view$.scrollLeft =
 
 // ---------- live ----------
 let first = true;
-new EventSource('/api/events').onmessage = async e => {
+const events = new EventSource('/api/events');
+// Agent activity from the hooks: "working" fades after 90s without news (the agent may have been interrupted).
+let actT = 0;
+events.addEventListener('activity', e => {
+  const [state, ts] = String((e as MessageEvent).data).split(' '), a = $('#agent'), age = Date.now() - Number(ts);
+  clearTimeout(actT);
+  const show = (cls: string, text: string) => { a.className = cls; a.textContent = text; a.hidden = false; };
+  if (state === 'working' && age < 90_000) { show('working', 'Agent working'); actT = window.setTimeout(() => (a.hidden = true), 90_000 - age); }
+  else if (state === 'waiting') show('waiting', 'Agent waiting for you');
+  else a.hidden = true;
+});
+events.onmessage = async e => {
   if (board && Number(e.data) === board.revision && !first) return;
   await load();
   if (first) {

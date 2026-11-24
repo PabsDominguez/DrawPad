@@ -187,6 +187,11 @@ try {
   await click(mi); // a real mouse click, not .click()
   await type('From the menu');
   check('menu comment created', (await board()).items.filter(i => i.comment && i.state === 'active').length === nC + 1);
+  // Agent activity: the hook marks the agent working (pill); an agent update glows where it lands.
+  execFileSync(process.execPath, [BIN, 'hook'], { cwd: dir, input: '{"hook_event_name":"PostToolUse"}' }); await sleep(800);
+  check('agent working pill', await ev(`(()=>{const a=document.querySelector('#agent');return !a.hidden && a.textContent})()`) === 'Agent working');
+  dp('add', 'html', 'page.html', '--key', 'web'); await sleep(900);
+  check('agent update glows', await ev(`document.querySelector('[data-id="${(await byKey('web')).id}"]').classList.contains('glow')`));
   // Board switcher: menu opens (lists real projects; never clicked here), unknown roots are refused.
   await ev(`document.querySelector('#proj').click()`); await sleep(500);
   check('board menu opens', await ev(`!document.querySelector('#projmenu').hidden`));
