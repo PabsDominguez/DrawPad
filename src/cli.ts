@@ -30,7 +30,7 @@ const HELP = `drawpad: shared visual board for a human and an agent
   wait [--timeout S] [--feedback]   blocks until feedback waits and the human paused ~8s;
       --feedback prints it (= feedback). Run in the background, start again after handling it
   open                       board in its own window
-  app                        make ~/Applications/DrawPad.app (pick a project, open its board)
+  app                        build ~/Applications/DrawPad.app (native board window, own Dock icon)
   serve [--port P]  url  stats`;
 
 const BOOL = new Set(['crops', 'json', 'help', 'quiet', 'feedback']);
@@ -119,6 +119,7 @@ const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 // Own window without tabs or address bar (Chrome app mode) in a DrawPad-only Chrome profile: it runs as
 // its own instance (own Dock icon, works whether or not the user's Chrome is open). Plain tab if no Chrome.
 function openWindow(url: string) {
+  if (fs.existsSync(NATIVE)) return void execFileSync('open', ['-a', APP, url]);
   if (!fs.existsSync(CHROME)) return void execFileSync('open', [url]);
   const profile = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'chrome');
   fs.mkdirSync(profile, { recursive: true });
@@ -144,26 +145,49 @@ function pick(): string {
 }
 
 // ~/Applications/DrawPad.app: one launcher for all projects (Spotlight and the Dock).
-function makeApp(): string {
-  const app = path.join(os.homedir(), 'Applications', 'DrawPad.app');
-  const q = (x: string) => `'${x.replace(/'/g, `'\\''`)}'`;
-  fs.rmSync(app, { recursive: true, force: true });
-  fs.mkdirSync(path.join(app, 'Contents', 'MacOS'), { recursive: true });
-  fs.writeFileSync(path.join(app, 'Contents', 'MacOS', 'launch'),
-    `#!/bin/sh\nexec ${q(process.execPath)} --disable-warning=ExperimentalWarning ${q(fileURLToPath(import.meta.url))} pick\n`, { mode: 0o755 });
-  fs.writeFileSync(path.join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
+// ~/Applications/DrawPad.app: a native window for boards (app/DrawPad.swift, WebKit), its own Dock icon.
+// Falls back to Chrome app windows when swiftc (Xcode command line tools) isn't there.
+const APP = path.join(os.homedir(), 'Applications', 'DrawPad.app');
+const NATIVE = path.join(APP, 'Contents', 'MacOS', 'DrawPad');
+const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect x="100" y="100" width="824" height="824" rx="190" fill="#1d1f25"/>
+<rect x="250" y="250" width="300" height="400" rx="28" fill="#4c8dff"/><rect x="590" y="250" width="184" height="250" rx="28" fill="#3a3c42"/>
+<circle cx="680" cy="660" r="56" fill="#f4c542"/><path d="M640 610 L560 540" stroke="#f4c542" stroke-width="22" stroke-linecap="round"/></svg>`;
+async function makeApp(): Promise<string> {
+  const c = path.join(APP, 'Contents');
+  fs.rmSync(APP, { recursive: true, force: true });
+  fs.mkdirSync(path.join(c, 'MacOS'), { recursive: true }); fs.mkdirSync(path.join(c, 'Resources'));
+  const src = fileURLToPath(new URL('../app/DrawPad.swift', import.meta.url));
+  try { execFileSync('swiftc', ['-O', '-o', NATIVE, src], { stdio: 'pipe' }); }
+  catch (e) { fs.rmSync(APP, { recursive: true, force: true }); fail('could not build the app (needs Xcode command line tools: xcode-select --install)\n' + String((e as { stderr?: Buffer }).stderr ?? e).slice(0, 600)); }
+  const x = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  fs.writeFileSync(path.join(c, 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>DrawPad</string>
-<key>CFBundleIdentifier</key><string>local.drawpad.launcher</string>
-<key>CFBundleExecutable</key><string>launch</string>
+<key>CFBundleIdentifier</key><string>local.drawpad.app</string>
+<key>CFBundleExecutable</key><string>DrawPad</string>
+<key>CFBundleIconFile</key><string>DrawPad</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>LSUIElement</key><true/>
+<key>CFBundleShortVersionString</key><string>1.0</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>DrawPadNode</key><string>${x(process.execPath)}</string>
+<key>DrawPadCLI</key><string>${x(fileURLToPath(import.meta.url))}</string>
 </dict></plist>
 `);
+  try { // icon: the SVG above through the design renderer, then iconutil
+    const { renderHtml, closeRenderer } = await import('./images.ts');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drawpad-icon-')), set = path.join(tmp, 'DrawPad.iconset');
+    fs.writeFileSync(path.join(tmp, 'i.svg'), ICON); fs.mkdirSync(set);
+    try { await renderHtml(path.join(tmp, 'i.svg'), path.join(tmp, 'i.png'), 512, 512); } finally { await closeRenderer(); }
+    for (const n of [16, 32, 128, 256, 512]) for (const k of [1, 2])
+      execFileSync('sips', ['-z', String(n * k), String(n * k), path.join(tmp, 'i.png'), '--out', path.join(set, `icon_${n}x${n}${k > 1 ? '@2x' : ''}.png`)], { stdio: 'ignore' });
+    execFileSync('iconutil', ['-c', 'icns', set, '-o', path.join(c, 'Resources', 'DrawPad.icns')]);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  } catch { /* no icon is fine */ }
   if (findRoot()) remember(root);
-  try { execFileSync('mdimport', [app], { stdio: 'ignore' }); } catch { /* Spotlight picks it up later */ }
-  return `${app}\nOne launcher for all boards: Spotlight "DrawPad" or drag it to the Dock.`;
+  try { execFileSync('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', ['-f', APP], { stdio: 'ignore' }); } catch { /* registers on first open */ }
+  try { execFileSync('mdimport', [APP], { stdio: 'ignore' }); } catch { /* Spotlight picks it up later */ }
+  return `${APP}\nNative DrawPad window. Open from Spotlight "DrawPad" or the Dock; switch boards from the name at the top left.`;
 }
 
 async function main() {
@@ -178,7 +202,11 @@ async function main() {
     }
     case 'url': return out(await server() + '/');
     case 'open': { const u = await server() + '/'; openWindow(u); return out(u); }
-    case 'app': return out(makeApp());
+    case 'app': return out(await makeApp());
+    case 'recent': { // the DrawPad app at launch: URL of the most recent board (starts its server)
+      const r = projects()[0]; if (!r) fail('no boards yet');
+      return out(execFileSync(process.execPath, ['--disable-warning=ExperimentalWarning', fileURLToPath(import.meta.url), 'url'], { cwd: r, encoding: 'utf8' }).trim());
+    }
     case 'pick': return out(pick());
     case 'board': {
       const q = new URLSearchParams();

@@ -16,7 +16,8 @@ the agent reads that feedback as compact text. Design and decisions: `SPEC.md`. 
 - TypeScript run directly by Node >= 22.18 (type stripping): no build step. Only `erasableSyntaxOnly` TS
   (no enums, no parameter properties). Zero runtime deps; dev deps are `typescript` + `@types/node` for checks.
 - The server strips types from `ui/*.ts` on the fly for the browser. Plain DOM, no framework.
-- macOS: `sips` for image sizes/thumbnails; Chrome app mode for the window (falls back to the default browser).
+- macOS: `sips` for image sizes/thumbnails; native WebKit app for the window (Chrome app mode fallback);
+  one hidden headless Chrome per server for design renders (DevTools protocol, `src/images.ts`).
 
 ## Architecture
 - One **server per project** (`src/server.ts`), auto-started by any CLI command, the **single writer** of
@@ -39,8 +40,8 @@ the agent reads that feedback as compact text. Design and decisions: `SPEC.md`. 
 - `src/images.ts` image sizes/thumbs (sips), design render + probes via headless Chrome; `src/probe.js` runs inside
   that page (checks, element under a pin, outline). Plain JS, inlined as a script.
 - `src/report.ts` the agent's text views. **Every byte costs tokens.**
-- `src/cli.ts` verbs, server start/restart, `open` (Chrome app window), `app`/`pick` (the global
-  `~/Applications/DrawPad.app` launcher and project registry).
+- `src/cli.ts` verbs, server start/restart, `open`, `app` (builds the native `~/Applications/DrawPad.app` from
+  `app/DrawPad.swift`: WebKit window per board, Info.plist holds node/cli paths; `recent` gives it a URL).
 - `ui/app.ts` the whole canvas: render, pointer tools, editors, undo stack, copy/paste. `ui/style.css`.
 - `test/ui.mjs` headless UI smoke test (real input via Chrome DevTools Protocol, throwaway project in /tmp).
 

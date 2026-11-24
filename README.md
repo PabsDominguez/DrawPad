@@ -14,12 +14,14 @@ drawpad app              # once: ~/Applications/DrawPad.app, one launcher for al
 drawpad help
 ```
 
-`open` uses Chrome's app mode (a window without tabs or address bar) in a DrawPad-only Chrome profile, so it runs
-as its own instance whether or not your Chrome is open. Each project gets a fixed port, so
-the window keeps its size and position, and opening a board again replaces its old window (one per board).
-The DrawPad launcher lists every project whose board has been opened (most recent first) and opens the
-one you pick; with a single project it opens it directly. It pins the current Node path; run `drawpad app`
-again after switching Node versions.
+`drawpad app` builds `~/Applications/DrawPad.app` (needs Xcode command line tools): a native window for boards
+(macOS WebKit, `app/DrawPad.swift`) with its own Dock icon. `drawpad open` then opens boards there, one window per
+board; launched from the Dock or Spotlight it opens the most recent board, and the board name at the top left
+switches boards. Run `drawpad app` again after switching Node versions (it pins the Node path). Without the app,
+`open` falls back to a Chrome app-mode window.
+
+Design renders use one hidden headless Chrome per project server (started on the first render, closed after
+10 idle minutes or with the server); nothing appears on screen.
 
 ## Agent designs
 

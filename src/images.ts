@@ -74,6 +74,9 @@ function launch(): Promise<Cdp> {
   });
 }
 
+// For one-off use outside the server (the CLI): stop the hidden Chrome so the process can exit.
+export async function closeRenderer() { if (browser) (await browser.catch(() => null))?.close(); browser = null; clearTimeout(idleT); }
+
 // A fresh tab of exactly w x h CSS px at 2x, showing url; fn runs with that tab's session.
 async function withPage<T>(url: string, w: number, h: number, fn: (S: (m: string, p?: object) => Promise<any>) => Promise<T>): Promise<T> {
   browser ??= launch().catch(e => { browser = null; throw e; });
