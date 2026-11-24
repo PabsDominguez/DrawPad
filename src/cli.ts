@@ -32,7 +32,8 @@ const HELP = `drawpad: shared visual board for a human and an agent
   arrow <from> <to> [--point x,y] [--label L]
   section "Title" [keys...]  move <key> --at x,y  archive|restore <key>
   hook [--wait S]            Claude Code hook (UserPromptSubmit, PostToolUse, Stop): tells the agent when
-                             sent feedback waits; on Stop, --wait S holds up to S seconds for a Send
+                             sent feedback waits; on Stop, --wait S holds up to S seconds for a Send, only
+                             while a round is on (drawpad used in the last 15 min and the board open)
   wait [--timeout S] [--feedback] [--section S]   blocks until feedback waits and the human paused ~8s;
       --feedback prints it (= feedback). Not needed when the Stop hook is set (it hands feedback over)
   open                       board in its own window
@@ -66,6 +67,8 @@ function out(text: string) {
   if (text) process.stdout.write(text.endsWith('\n') ? text : text + '\n');
   // Only what lands in the agent's context (open/app/pick/url are run by the launcher and the human too).
   if (!['open', 'app', 'pick', 'url', 'serve'].includes(verb)) try { fs.appendFileSync(paths(root).stats, JSON.stringify({ v: verb, c: text.length }) + '\n'); } catch { /* no .drawpad yet */ }
+  // The agent is in a DrawPad round (the Stop hook only waits for the human then).
+  if (!['open', 'app', 'pick', 'url', 'serve', 'hook', 'wait', 'help', 'stats', 'tell-dev', 'recent'].includes(verb)) try { fs.writeFileSync(path.join(paths(root).dir, 'agent-used'), String(Date.now())); } catch { /* no .drawpad yet */ }
 }
 function fail(msg: string): never { process.stderr.write(msg + '\n'); process.exit(1); }
 
@@ -290,8 +293,17 @@ async function main() {
         // No stop_hook_active guard: this only continues the agent when there is real sent feedback, and handing it
         // over marks it delivered, so it can't loop; a back-and-forth (reply, reply…) keeps flowing.
         let l = line();
-        act(l ? 'working' : num('wait') ? 'waiting' : 'idle');
-        for (const until = Date.now() + (num('wait') ?? 0) * 1000; !l && Date.now() < until; l = line()) await new Promise(r => setTimeout(r, 2000));
+        // Only hold the stop for the human while a DrawPad round is on: the agent used drawpad in the last
+        // 15 minutes and the board is open in a window. Otherwise the agent goes idle as usual.
+        let wait = num('wait') ?? 0;
+        if (wait && !l) {
+          let used = 0; try { used = Number(fs.readFileSync(path.join(paths(root).dir, 'agent-used'), 'utf8')); } catch { /* never */ }
+          let viewers = 0;
+          try { const { port } = JSON.parse(fs.readFileSync(paths(root).server, 'utf8')); viewers = (await ping(port) as { viewers?: number } | null)?.viewers ?? 0; } catch { /* no server */ }
+          if (Date.now() - used > 15 * 60_000 || !viewers) wait = 0;
+        }
+        act(l ? 'working' : wait ? 'waiting' : 'idle');
+        for (const until = Date.now() + wait * 1000; !l && Date.now() < until; l = line()) await new Promise(r => setTimeout(r, 2000));
         if (!l) { act('idle'); return; }
         act('working');
         // The feedback itself (through the server, the board's single writer): nothing to fetch, nothing to race.

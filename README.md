@@ -59,8 +59,9 @@ In the project's `.claude/settings.json` (or `settings.local.json`). `drawpad ho
 ```
 
 - UserPromptSubmit / PostToolUse: one line of context when sent feedback waits (PostToolUse only when it changes).
-- Stop: the agent doesn't stop while sent feedback waits; it is told to run `drawpad feedback`. With `--wait S` it
-  holds the stop until you press **Send to agent** (up to S seconds), so you never have to come back to the chat.
+- Stop: the agent doesn't stop while sent feedback waits; it gets the feedback itself. With `--wait S` it
+  holds the stop until you press **Send to agent** (up to S seconds), only while a round is on: the agent used
+  drawpad in the last 15 minutes and the board is open. Otherwise it goes idle as usual.
   The session shows as busy meanwhile; interrupt it as usual. Without `--wait` it only catches feedback sent
   while the agent was working.
 

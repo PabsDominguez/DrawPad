@@ -100,7 +100,7 @@ export function serve(root: string, port = 0): Promise<number> {
         return file(res, f);
       }
       if (p.startsWith('/a/')) return file(res, path.join(store.p.assets, path.basename(decodeURIComponent(p))), true);
-      if (p === '/api/ping') return send(res, 200, JSON.stringify({ ok: true, root, rev: store.board.revision, stamp }), 'application/json');
+      if (p === '/api/ping') return send(res, 200, JSON.stringify({ ok: true, root, rev: store.board.revision, stamp, viewers: clients.size }), 'application/json');
       if (p === '/api/board') return send(res, 200, JSON.stringify(store.board), 'application/json');
       if (p === '/api/events') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
