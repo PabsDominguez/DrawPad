@@ -104,6 +104,13 @@ function toggleOpen(it: Item) {
   render();
 }
 const visible = () => solid().filter(i => !closed(i));
+// Where the conversation stands, from the human's side: sent, read by the agent, or answered.
+function readState(it: Item): string {
+  const last = it.comment!.thread.at(-1);
+  if (last?.by === 'agent' || (!last && it.createdBy === 'agent')) return 'agent replied';
+  const unread = last ? !last.delivered : !it.delivered;
+  return unread ? 'sent · not read yet' : 'read by agent ✓';
+}
 
 // ---------- view ----------
 function applyView() {
@@ -230,8 +237,8 @@ function content(it: Item): string {
       (t.by === 'human' ? `<span class="icons"><span class="ic" data-act="editReply" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span><span class="ic" data-act="deleteReply" title="Delete"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span></span>` : '') + `</div>${md(t.text)}</div>`).join('');
     const mine = it.createdBy === 'human';
     const close = `<span class="icons">${mine ? `<span class="ic" data-act="edit" title="Edit"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span>` : ''}<span class="ic" data-act="delete" title="Delete (⌘Z brings it back)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span>${pinArrow(it) ? `<span class="ic" data-act="close" title="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ''}</span>`;
-    const state = c.status === 'open' ? (it.delivered || !mine ? 'open' : 'waiting for agent') : c.status;
-    const st = `<span class="st s-${c.status}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span>`;
+    const state = c.status === 'open' ? readState(it) : c.status === 'addressed' ? 'done by agent' : c.status;
+    const st = `<span class="st s-${c.status}${state.startsWith('read') ? ' read' : ''}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span>`;
     const acts = c.status !== 'resolved'
       ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}${st}</div>`
       : `<div class="acts"><button data-act="reopen">Reopen</button>${st}</div>`;
@@ -249,7 +256,7 @@ function render() {
     let el = els.get(it.id);
     if (!el) { el = document.createElement('div'); el.dataset.id = it.id; world.appendChild(el); els.set(it.id, el); }
     const on = sel.has(it.id), one = on && sel.size === 1;
-    const state = `${it.rev}${on}${one}`;
+    const state = `${it.rev}${on}${one}${it.delivered}${it.comment?.thread.map(t => +!!t.delivered).join('') ?? ''}`; // read marks don't bump rev
     if (el.dataset.state !== state) {
       el.innerHTML = content(it) + (one && !it.comment ? '<div class="handle"></div>' : '');
       el.dataset.state = state;
@@ -381,8 +388,12 @@ function outline() {
   if (loose.length) html += row('Inbox / loose', new Set(loose.map(i => i.id)), '~');
   setHTML(o, html);
 }
+let lastWaiting = -1;
 function status() {
-  const waiting = active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow').length;
+  const waiting = active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow').length +
+    active().reduce((n, i) => n + (i.comment?.thread.filter(t => t.by === 'human' && !t.delivered).length ?? 0), 0);
+  if (lastWaiting > 0 && waiting < lastWaiting) hint('Agent read your feedback ✓');
+  lastWaiting = waiting;
   setHTML($('#proj'), `${esc(board!.name)} ▾`);
   setHTML($('#status'), `round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`);
 }
@@ -1058,7 +1069,7 @@ function commentsPanel() {
   const row = (c: Item) => {
     const k = c.comment!, t = byId.get(k.target!), n = k.thread.length;
     return `<div class="crow${sel.has(c.id) ? ' on' : ''}" data-c="${c.id}"><span class="chip i-${k.intent}">${k.intent}</span>` +
-      `<span class="ct">${esc(cur(c).text ?? '')}</span><span class="cm2">${esc(t?.title ?? t?.key ?? '')}${n ? ` · ${n} repl${n > 1 ? 'ies' : 'y'}` : ''}${c.createdBy === 'agent' ? ' · agent' : ''}</span></div>`;
+      `<span class="ct">${esc(cur(c).text ?? '')}</span><span class="cm2">${esc(t?.title ?? t?.key ?? '')}${n ? ` · ${n} repl${n > 1 ? 'ies' : 'y'}` : ''}${c.createdBy === 'agent' ? ' · agent' : ''}${k.status === 'open' ? ` · ${readState(c)}` : ''}</span></div>`;
   };
   const group = (title: string, list: Item[], note: string) => list.length ? `<h4>${title} <span>${list.length}</span></h4><p class="cn">${note}</p>${list.map(row).join('')}` : '';
   setHTML($('#cpanel'), group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'not answered yet') +

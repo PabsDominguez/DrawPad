@@ -124,7 +124,11 @@ try {
   b = await box(`[data-id="${id2}"]`);
   await key('t', 'KeyT'); await drag([b.r + 30, b.y], [b.r + 300, b.y + 30]);
   await cmd('Input.insertText', { text: 'Context note' }); await key('Enter', 'Enter', 4); await sleep(900);
+  check('comment shows not read yet', (await ev(`document.querySelector('.item.cm').textContent`)).includes('not read yet'));
   const fb = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text();
+  await sleep(800);
+  check('comment shows read by agent', (await ev(`document.querySelector('.item.cm').textContent`)).includes('read by agent'));
+  check('top bar says agent read it', (await ev(`document.querySelector('#hint').textContent`)).includes('Agent read your feedback'));
   check('note reported near s2', /new text near s2/.test(fb), fb);
   check('drawing reported', /line on s1/.test(fb), fb);
 
