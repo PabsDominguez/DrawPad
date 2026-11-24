@@ -36,7 +36,7 @@ export interface Comment {
 }
 
 // The human's drawings. On an item (on = its id): pts are 0..1 of that item and move with it. Otherwise world coords.
-export interface Mark { shape: 'line' | 'arrow' | 'rect' | 'ellipse'; pts: [number, number, number, number]; on?: string; crop?: string }
+export interface Mark { shape: 'line' | 'arrow' | 'rect' | 'ellipse'; pts: [number, number, number, number]; on?: string; crop?: string; els?: string[] }
 
 export interface Reaction { kind: 'approve' | 'reject'; reason?: string; version: number; sent?: number; delivered?: boolean }
 

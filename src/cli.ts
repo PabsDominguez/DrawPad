@@ -13,27 +13,33 @@ const HELP = `drawpad: shared visual board for a human and an agent
   add image|html|text|link <path|text|url|-> --key K [--title T] [--section S]
       html: your .html/.svg file (any design); --width = CSS width (default 1280, then kept),
       height = full page unless --height. Edit the file, re-add same key = new version.
-      Result lists problems (clipping, fonts, cut text, <11px, contrast, data-tap <44)
-  outline <key>                           a design's visible text: x,y wxh size [b] text
+      Link project files (css, fonts, images) by relative path; don't embed base64.
+      Result: problems (clipping, fonts, cut text, <11px, contrast, data-tap <44) or "checks ok"
+  outline <key> [--boxes]                 a design's visible text (x,y wxh size [b] text); --boxes adds
+                                          images and visible boxes [selector bg]
+  title <key> "Title"                     rename an item (no new version)
       [--below K | --right-of K | --in-row-with K | --at x,y] [--width W] [--height H]
       [--note N] [--commit C] [--launch L] [--files a,b]   same key = new version
   add --many items.json                   [{kind,key,path|text|url,section,...}]
   capture sim --key K [--bundle ID --launch "args"] [--wait S] [add flags]
       simulator screenshot -> image item; --bundle relaunches the app with --launch first
   drop <key> [--version N]                remove one version (default latest)
-  feedback [--since REV] [--crops] [--json]   sent human feedback, marks it delivered
+  feedback [--since REV] [--crops] [--json] [--section S]   sent human feedback, marks it delivered;
+      --section: only feedback about that section (boards shared by several agents)
   crop <comment>                          path of a comment's crop png
   reply <comment> "text"     done <comment> [--artifact K]
   arrow <from> <to> [--point x,y] [--label L]
   section "Title" [keys...]  move <key> --at x,y  archive|restore <key>
   hook                       one line when feedback waits (UserPromptSubmit hook)
-  wait [--timeout S] [--feedback]   blocks until feedback waits and the human paused ~8s;
+  wait [--timeout S] [--feedback] [--section S]   blocks until feedback waits and the human paused ~8s;
       --feedback prints it (= feedback). Run in the background, start again after handling it
   open                       board in its own window
   app                        build ~/Applications/DrawPad.app (native board window, own Dock icon)
   serve [--port P]  url  stats`;
 
-const BOOL = new Set(['crops', 'json', 'help', 'quiet', 'feedback']);
+const BOOL = new Set(['crops', 'json', 'help', 'quiet', 'feedback', 'boxes']);
+const KNOWN = new Set([...BOOL, 'height', 'port', 'since', 'timeout', 'version', 'wait', 'width', 'at', 'point', 'artifact', 'below', 'bundle',
+  'color', 'commit', 'files', 'in-row-with', 'key', 'label', 'launch', 'many', 'note', 'right-of', 'section', 'title']);
 const argv = process.argv.slice(2);
 const pos: string[] = [];
 const fl: Record<string, string | true> = {};
@@ -49,6 +55,7 @@ const num = (k: string) => (str(k) !== undefined ? Number(str(k)) : undefined);
 const pair = (k: string) => { const s = str(k); if (!s) return undefined; const [a, b] = s.split(',').map(Number); return [a, b] as [number, number]; };
 
 const verb = pos.shift() ?? 'help';
+{ const bad = Object.keys(fl).filter(k => !KNOWN.has(k)); if (bad.length) { process.stderr.write(`unknown flag ${bad.map(b => '--' + b).join(', ')} (see drawpad help)\n`); process.exit(1); } }
 const root = findRoot() ?? process.cwd();
 
 function out(text: string) {
@@ -240,8 +247,9 @@ async function main() {
       fs.rmSync(tmp, { force: true });
       return out(res);
     }
-    case 'outline': return out(await api('/api/outline?key=' + encodeURIComponent(pos[0] ?? '')));
-    case 'feedback': return out(await api('/api/feedback', { since: num('since'), crops: !!fl.crops, json: !!fl.json }));
+    case 'title': return out(await op({ op: 'edit', id: pos[0], title: pos.slice(1).join(' '), by: 'agent' }));
+    case 'outline': return out(await api('/api/outline?key=' + encodeURIComponent(pos[0] ?? '') + (fl.boxes ? '&boxes=1' : '')));
+    case 'feedback': return out(await api('/api/feedback', { since: num('since'), crops: !!fl.crops, json: !!fl.json, section: str('section') }));
     case 'crop': {
       const b = JSON.parse(await api('/api/board'));
       const it = b.items.find((i: { key: string; id: string }) => i.key === pos[0] || i.id === pos[0]);
@@ -263,7 +271,15 @@ async function main() {
       if (!findRoot()) return;
       return out(hookLine(new Store(root).pending()));
     }
-    case 'wait': return out(await api(`/api/wait?timeout=${num('timeout') ?? 0}${fl.feedback ? '&feedback=1' : ''}`));
+    case 'wait': { // in 4-minute slices: Node's fetch drops a response that stays silent for 5 minutes
+      const until = num('timeout') ? Date.now() + num('timeout')! * 1000 : Infinity;
+      const q = `${fl.feedback ? '&feedback=1' : ''}${str('section') ? '&section=' + encodeURIComponent(str('section')!) : ''}`;
+      for (;;) {
+        const slice = Math.max(1, Math.min(240, Math.ceil((until - Date.now()) / 1000)));
+        const r = await api(`/api/wait?timeout=${slice}${q}`);
+        if (r !== 'timeout' || Date.now() >= until) return out(r);
+      }
+    }
     case 'shot': return fail('shot needs the headless renderer (build step 2); use `drawpad board` for now');
     case 'stats': {
       const f = paths(root).stats;

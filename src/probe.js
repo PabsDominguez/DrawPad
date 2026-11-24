@@ -63,7 +63,8 @@ function checks(d) {
     if (el.hasAttribute('data-tap')) { const r = el.getBoundingClientRect(); if (r.width < 44 || r.height < 44) tap.push(`${sel(el)} ${Math.round(r.width)}x${Math.round(r.height)}`); }
   }
   const few = (a, label) => a.length ? [`${label} (${a.length}): ${a.slice(0, 3).join('; ')}${a.length > 3 ? '; …' : ''}`] : [];
-  return [...few(cut, 'text cut off'), ...few(tiny, 'text under 11px'), ...few(low, 'low contrast'), ...few(tap, 'tap target under 44'), ];
+  const broken = [...d.images].filter(i => i.complete && !i.naturalWidth).map(i => (i.getAttribute('src') || '').slice(0, 60));
+  return [...few(broken, 'images failed to load'), ...few(cut, 'text cut off'), ...few(tiny, 'text under 11px'), ...few(low, 'low contrast'), ...few(tap, 'tap target under 44'), ];
 }
 
 // What a pin at (x, y) CSS px points at.
@@ -77,13 +78,17 @@ function elAt(d, x, y) {
 }
 
 // Visible text with positions, top to bottom: lets the agent check content without reading an image.
-function outline(d) {
-  const out = [];
+// boxes: also images and boxes that show something (background, border, shadow), for alignment questions.
+function outline(d, boxes) {
+  const out = [], pos = r => `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
   for (const el of d.body.querySelectorAll('*')) {
-    const t = ownText(el);
-    if (!t || !visible(d, el)) continue;
-    const r = el.getBoundingClientRect(), s = css(d, el);
-    out.push([r.y, `${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)} ${parseFloat(s.fontSize)}px${+s.fontWeight >= 600 ? ' b' : ''} ${t.slice(0, 80)}`]);
+    if (!visible(d, el)) continue;
+    const t = ownText(el), r = el.getBoundingClientRect(), s = css(d, el);
+    if (t) { out.push([r.y, `${pos(r)} ${parseFloat(s.fontSize)}px${+s.fontWeight >= 600 ? ' b' : ''} ${t.slice(0, 80)}`]); continue; }
+    if (!boxes || r.width < 8 || r.height < 8) continue;
+    const media = /^(IMG|SVG|VIDEO|CANVAS|PICTURE)$/i.test(el.tagName);
+    const bg = hex(s.backgroundColor), deco = bg !== 'transparent' || s.backgroundImage !== 'none' || parseFloat(s.borderTopWidth) > 0 || s.boxShadow !== 'none';
+    if (media || deco) out.push([r.y, `${pos(r)} [${sel(el)}${media ? '' : bg !== 'transparent' ? ' ' + bg : ''}]`]);
   }
   return out.sort((a, b) => a[0] - b[0]).slice(0, 200).map(x => x[1]);
 }

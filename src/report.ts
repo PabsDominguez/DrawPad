@@ -39,7 +39,7 @@ export function boardText(s: Store, since?: number, section?: string): string {
   if (arrows.length) out.push('arrows: ' + arrows.map(a => `${byId.get(a.from!)?.key}->${byId.get(a.to!)?.key}${a.label ? `(${a.label})` : ''}`).join(', '));
 
   const marks = b.items.filter(i => i.mark && i.state === 'active');
-  if (marks.length) out.push(`drawings: ${marks.map(m => markText(b.items, m)).join('; ')}`);
+  if (marks.length) out.push(`drawings: ${marks.map(m => markText(b.items, m).split('\n')[0]).join('; ')}`);
 
   const comments = b.items.filter(i => i.comment && i.state === 'active' && !draft(i) && i.comment.status !== 'resolved');
   const todo = comments.filter(c => c.comment!.intent !== 'keep');
@@ -58,7 +58,7 @@ export function boardText(s: Store, since?: number, section?: string): string {
   return out.join('\n');
 }
 
-export interface FeedbackOpts { since?: number; crops?: boolean; json?: boolean }
+export interface FeedbackOpts { since?: number; crops?: boolean; json?: boolean; section?: string }
 
 export function feedbackText(s: Store, o: FeedbackOpts): string {
   const b = s.board;
@@ -66,9 +66,10 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
   const take = (sent: number | undefined, delivered: boolean | undefined) =>
     sent !== undefined && sent <= (b.released ?? Infinity) && (o.since !== undefined ? sent > o.since : !delivered);
 
-  const items = b.items.filter(i => i.createdBy === 'human' && i.state === 'active' && take(i.sent, i.delivered));
-  const reacts = b.items.filter(i => i.reaction && take(i.reaction.sent, i.reaction.delivered));
-  const replies = b.items.flatMap(i => (i.comment?.thread ?? []).filter(t => t.by === 'human' && take(t.sent, t.delivered)).map(t => ({ it: i, t })));
+  const scoped = b.items.filter(i => s.inSection(i, o.section));
+  const items = scoped.filter(i => i.createdBy === 'human' && i.state === 'active' && take(i.sent, i.delivered));
+  const reacts = scoped.filter(i => i.reaction && take(i.reaction.sent, i.reaction.delivered));
+  const replies = scoped.flatMap(i => (i.comment?.thread ?? []).filter(t => t.by === 'human' && take(t.sent, t.delivered)).map(t => ({ it: i, t })));
 
   const comments = items.filter(i => i.comment);
   const todo = comments.filter(c => c.comment!.intent !== 'keep'), keep = comments.filter(c => c.comment!.intent === 'keep');
@@ -142,6 +143,14 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
 // "m-12 line on s1 (0.10,0.30)-(0.90,0.30)" or "m-13 arrow s1 -> s2" / "m-14 rect around s1,s2" for free drawings.
 function markText(all: Item[], m: Item): string {
   const k = m.mark!, f = (v: number) => v.toFixed(2);
+  const t = k.on ? all.find(i => i.id === k.on) : undefined, tv = t?.versions.at(-1);
+  if (t && tv?.html && tv.cw && tv.ph) { // designs: CSS px and the elements it touches
+    const X = (v: number) => Math.round(v * tv.cw!), Y = (v: number) => Math.round(v * tv.ph! / 2), [x1, y1, x2, y2] = k.pts;
+    const line = k.shape === 'line' || k.shape === 'arrow';
+    let s = `${m.key} ${k.shape} on ${t.key} ${line ? `(${X(x1)},${Y(y1)})-(${X(x2)},${Y(y2)})px` : `${X(Math.min(x1, x2))},${Y(Math.min(y1, y2))} ${Math.abs(X(x2) - X(x1))}x${Math.abs(Y(y2) - Y(y1))}px`}`;
+    if (k.els) s += line ? `\n    from: ${k.els[0]}\n    to: ${k.els[1]}` : `\n    around: ${k.els[0]}`;
+    return s;
+  }
   if (k.on) return `${m.key} ${k.shape} on ${all.find(i => i.id === k.on)?.key} (${f(k.pts[0])},${f(k.pts[1])})-(${f(k.pts[2])},${f(k.pts[3])})`;
   const live = all.filter(i => i.state === 'active' && i.kind !== 'arrow' && i.kind !== 'mark' && !i.comment);
   const at = (x: number, y: number) => live.find(i => x >= i.x && x <= i.x + i.w && y >= i.y && y <= i.y + i.h)?.key ?? 'canvas';

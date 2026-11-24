@@ -114,7 +114,7 @@ export function serve(root: string, port = 0): Promise<number> {
       if (p === '/api/outline') { // a design's visible text with positions (x,y wxh size [b] text)
         const it = store.find(u.searchParams.get('key') ?? ''), v = it.versions.at(-1)!;
         if (!v.html || !v.cw || !v.ph) return send(res, 400, `${it.key} is not a design`);
-        const lines = await probeDesign(path.join(store.p.assets, v.html), root, v.cw, v.ph / 2, 'outline(d)') as string[];
+        const lines = await probeDesign(path.join(store.p.assets, v.html), root, v.cw, v.ph / 2, `outline(d,${u.searchParams.get('boxes') ? 1 : 0})`) as string[];
         return send(res, 200, [`${it.key} v${v.v} ${v.cw}x${v.ph / 2}`, ...lines].join('\n'));
       }
       if (p === '/api/feedback') {
@@ -126,7 +126,8 @@ export function serve(root: string, port = 0): Promise<number> {
         const QUIET = 8000, t = Number(u.searchParams.get('timeout') ?? 0), until = t ? Date.now() + t * 1000 : Infinity;
         const tick = setInterval(() => {
           if (res.writableEnded) return clearInterval(tick);
-          if (store.pending().total && Date.now() - store.lastHuman >= QUIET) { clearInterval(tick); send(res, 200, u.searchParams.get('feedback') ? feedbackText(store, {}) : hookLine(store.pending())); }
+          const section = u.searchParams.get('section') ?? undefined;
+          if (store.pending(false, section).total && Date.now() - store.lastHuman >= QUIET) { clearInterval(tick); send(res, 200, u.searchParams.get('feedback') ? feedbackText(store, { section }) : hookLine(store.pending(false, section))); }
           else if (Date.now() >= until) { clearInterval(tick); send(res, 200, 'timeout'); }
         }, 500);
         req.on('close', () => clearInterval(tick));

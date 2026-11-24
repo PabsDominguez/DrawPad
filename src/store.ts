@@ -153,7 +153,7 @@ export class Store {
     }
     if (a.kind === 'link' && by === 'human' && !a.title) this.fetchTitle(it, ver.url!);
     this.save();
-    return line(this, it) + [...renderWarn, ...problems].map(p => `\n  ! ${p}`).join('');
+    return line(this, it) + [...renderWarn, ...problems].map(p => `\n  ! ${p}`).join('') + (design && !renderWarn.length ? '\n  checks ok' : '');
   }
 
   // Designs render first (async, in the shared headless Chrome), then go in like any add.
@@ -254,6 +254,7 @@ export class Store {
     if (a.crop) it.mark!.crop = path.basename(a.crop);
     if (by === 'human') this.fromHuman(it, rev);
     this.board.items.push(it); this.save();
+    this.markElements(it);
     return `${it.key} ${a.shape}`;
   }
   remark(ref: string, pts: Mark['pts'], crop?: string): string {
@@ -263,8 +264,24 @@ export class Store {
     it.mark.pts = pts; it.rev = rev;
     if (crop) it.mark.crop = path.basename(crop);
     if (it.createdBy === 'human') this.fromHuman(it, rev);
+    delete it.mark.els;
     this.save();
+    this.markElements(it);
     return `${it.key} moved`;
+  }
+
+  // Drawings on designs: the elements under a line's two ends (or a box's centre), like pinElement.
+  private async markElements(m: Item) {
+    const k = m.mark!, v = k.on ? this.board.items.find(i => i.id === k.on)?.versions.at(-1) : undefined;
+    if (!v?.html || !v.cw || !v.ph) return;
+    const w = v.cw, h = v.ph / 2, [x1, y1, x2, y2] = k.pts, before = JSON.stringify(k.pts);
+    const at = (x: number, y: number) => `elAt(d,${x * w},${y * h})`;
+    const call = k.shape === 'line' || k.shape === 'arrow' ? `[${at(x1, y1)},${at(x2, y2)}]` : `[${at((x1 + x2) / 2, (y1 + y2) / 2)}]`;
+    try {
+      const els = await probeDesign(path.join(this.p.assets, v.html), this.root, w, h, call);
+      if (!Array.isArray(els) || JSON.stringify(k.pts) !== before) return;
+      k.els = els.map(e => e ?? 'nothing'); m.rev = this.bump(); this.save();
+    } catch { /* coordinates still work */ }
   }
 
   // A frame the human drew (or the undo of removing one): explicit box, adopts the given items in place.
@@ -536,11 +553,22 @@ export class Store {
     return `sent ${n}`;
   }
 
+  // Which section a piece of feedback is about: a comment's or drawing's target, else the item's own section.
+  // Lets several agents share a board (feedback/wait --section S).
+  inSection(it: Item, title?: string): boolean {
+    if (!title) return true;
+    const ref = it.comment?.target ?? it.mark?.on ?? it.from;
+    const sec = (ref ? this.board.items.find(i => i.id === ref)?.section : undefined) ?? it.section;
+    const s = this.board.sections.find(x => x.id === sec);
+    return !!s && (s.title.toLowerCase() === title.toLowerCase() || s.id === title);
+  }
+
   // held: count feedback saved but not sent yet instead.
-  pending(held = false) {
+  pending(held = false, section?: string) {
     const r = this.board.released ?? Infinity, ok = (s?: number) => s !== undefined && (held ? s > r : s <= r);
     let comments = 0, items = 0, marks = 0, reactions = 0, replies = 0;
     for (const it of this.board.items) {
+      if (!this.inSection(it, section)) continue;
       if (it.createdBy === 'human' && ok(it.sent) && !it.delivered && it.state === 'active') {
         if (it.comment) comments++; else if (it.kind === 'mark') marks++; else if (it.kind !== 'arrow') items++;
       }

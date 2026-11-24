@@ -510,6 +510,15 @@ async function makeCrop(it: Item, point?: [number, number], region?: [number, nu
     const mx = region[2] * W * 0.25 + 40, my = region[3] * H * 0.25 + 40;
     cx = region[0] * W - mx; cy = region[1] * H - my; cw = Math.min(W, region[2] * W + 2 * mx); ch = Math.min(H, region[3] * H + 2 * my);
     cx = Math.max(0, Math.min(cx, W - cw)); cy = Math.max(0, Math.min(cy, H - ch));
+  } else if (H > W * 1.6) {
+    // Tall pages (landing pages, long screens): the whole page shrinks to unreadable, so keep the full width but
+    // only a band around the pin and the drawings on it.
+    const ys = [...(point ? [point[1]] : []), ...[...active().filter(m => m.mark?.on === it.id).map(m => m.mark!), ...(extra ? [extra] : [])].flatMap(m => [m.pts[1], m.pts[3]])].map(f => f * H);
+    if (ys.length) {
+      const lo = Math.min(...ys), hi = Math.max(...ys);
+      ch = Math.min(H, Math.max(W * 1.2, hi - lo + W * 0.5));
+      cy = Math.max(0, Math.min(H - ch, (lo + hi) / 2 - ch / 2));
+    }
   }
   const s = Math.min(1, 1000 / Math.max(cw, ch));
   const c = document.createElement('canvas'); c.width = Math.round(cw * s); c.height = Math.round(ch * s);

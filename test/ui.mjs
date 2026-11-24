@@ -76,6 +76,19 @@ try {
   const pinFb = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text();
   check('pin on a design names its element', /el: #t \d+x\d+ .*"Design"/.test(pinFb), pinFb);
   await fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify({ op: 'archive', id: (await board()).items.find(i => i.comment)?.key }) });
+  // Drawings on designs: CSS px + elements; section scoping; outline --boxes; title; unknown flags.
+  const post = o => fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify(o) }).then(r => r.text());
+  await post({ op: 'mark', shape: 'line', pts: [0.05, 0.05, 0.5, 0.05], on: 'web', by: 'human' });
+  await sleep(2500); await post({ op: 'release' });
+  const scoped = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: JSON.stringify({ section: 'Nope' }) })).text();
+  check('feedback --section filters', scoped === 'no new feedback', scoped);
+  const markFb = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text();
+  check('drawing on design in px with elements', /line on web \(40,\d+\)-\(400,\d+\)px\n {4}from: #t/.test(markFb), markFb);
+  check('outline --boxes runs', /^web v1/.test(dp('outline', 'web', '--boxes')));
+  check('title renames without a version', /^web v1 /.test(dp('title', 'web', 'Landing')) && (await byKey('web')).title === 'Landing');
+  let flagErr = ''; try { dp('add', 'text', 'x', '--above', 'web'); } catch (e) { flagErr = String(e.stderr); }
+  check('unknown flag fails', /unknown flag --above/.test(flagErr), flagErr);
+  check('clean design says checks ok', /checks ok/.test(addHtml), addHtml);
   check('outline lists visible text', /\d+px b Design/.test(dp('outline', 'web')));
   const id1 = (await byKey('s1')).id, id2 = (await byKey('s2')).id;
   let a = await box(`[data-id="${id1}"]`), b = await box(`[data-id="${id2}"]`);
@@ -117,7 +130,7 @@ try {
   const ly = (a.y + a.b) / 2;
   await mouse('mousePressed', a.x + 10, ly); await mouse('mouseMoved', a.x + 20, ly + 5);
   await mouse('mouseMoved', a.r - 10, ly + 10, 8); await mouse('mouseReleased', a.r - 10, ly + 10, 8); await sleep(800);
-  const line = (await board()).items.find(i => i.mark);
+  const line = (await board()).items.find(i => i.mark?.on === id1);
   check('line sticks to s1', line?.mark.on === id1, line?.mark);
   check('shift snaps horizontal', line && Math.abs(line.mark.pts[1] - line.mark.pts[3]) < 1e-6, line?.mark.pts);
 
