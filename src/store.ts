@@ -69,6 +69,7 @@ export class Store {
     const rev = this.bump();
     let it = a.key ? this.board.items.find(i => i.key === a.key) : undefined;
     const design = a.kind === 'html';
+    let renderWarn: string[] = [];
     if (design) a.kind = 'image';
     if (it && it.kind !== a.kind) throw new Error(`key "${a.key}" is a ${it.kind}, not ${a.kind}`);
     const isNew = !it;
@@ -83,12 +84,13 @@ export class Store {
       const stem = `${key.replace(/[^\w.-]/g, '_')}-v${ver.v}`, prev = it?.versions.at(-1);
       const cw = Math.round(a.width ?? prev?.cw ?? svgSize(a.path)?.[0] ?? 1280);
       const h = a.height ?? (a.path.toLowerCase().endsWith('.svg') ? svgSize(a.path)?.[1] : undefined);
-      const [, ch] = renderHtml(a.path, path.join(this.p.assets, stem + '.png'), cw, h && Math.round(h * cw / (svgSize(a.path)?.[0] ?? cw)));
+      const { h: ch, warn } = renderHtml(a.path, path.join(this.p.assets, stem + '.png'), cw, h && Math.round(h * cw / (svgSize(a.path)?.[0] ?? cw)));
       // Source copy for the live view; <base> points at its folder (served under /p/) so relative files load.
       const rel = path.relative(this.root, path.dirname(a.path));
       let src = fs.readFileSync(a.path, 'utf8');
       if (!rel.startsWith('..')) { const base = `<base href="/p/${rel ? encodeURI(rel) + '/' : ''}">`; src = /<head[^>]*>/i.test(src) ? src.replace(/<head[^>]*>/i, m => m + base) : base + src; }
       fs.writeFileSync(path.join(this.p.assets, stem + '.html'), src);
+      renderWarn = warn;
       Object.assign(ver, { asset: stem + '.png', html: stem + '.html', cw, pw: cw * 2, ph: ch * 2 });
       ver.thumb = makeThumb(path.join(this.p.assets, stem + '.png'), cw * 2);
     } else if (a.kind === 'image') {
@@ -142,7 +144,7 @@ export class Store {
       const anchor = (r?: string) => (r ? this.find(r) : undefined);
       const o = { at: a.at, below: anchor(a.below), rightOf: anchor(a.rightOf), inRowWith: anchor(a.inRowWith) };
       if (!a.section && !isNew && !(o.at || o.below || o.rightOf || o.inRowWith)) {
-        problems = place(this.board, it, { at: [it.x, it.y] }).filter(p => !p.startsWith('overlap'));
+        problems = place(this.board, it, { at: [it.x, it.y] }).filter(p => !p.includes(' was at '));
       } else {
         if (!a.section && (o.below || o.rightOf || o.inRowWith)) it.section = (o.below ?? o.rightOf ?? o.inRowWith)!.section;
         if (isNew || o.at || o.below || o.rightOf || o.inRowWith || it.section !== oldSection) problems = place(this.board, it, o);
@@ -150,7 +152,7 @@ export class Store {
     }
     if (a.kind === 'link' && by === 'human' && !a.title) this.fetchTitle(it, ver.url!);
     this.save();
-    return line(this, it) + problems.map(p => `\n  ! ${p}`).join('');
+    return line(this, it) + [...renderWarn, ...problems].map(p => `\n  ! ${p}`).join('');
   }
 
   private async fetchTitle(it: Item, url: string) {

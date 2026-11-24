@@ -33,7 +33,7 @@ export function makeThumb(file: string, pw: number): string | undefined {
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 // Kept between renders: a fresh Chrome profile costs ~3s.
 const PROFILE = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'render');
-export function renderHtml(src: string, outPng: string, w: number, h?: number): [number, number] {
+export function renderHtml(src: string, outPng: string, w: number, h?: number): { w: number; h: number; warn: string[] } {
   if (!fs.existsSync(CHROME)) throw new Error('rendering designs needs Google Chrome');
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'drawpad-r-'));
   try {
@@ -48,16 +48,23 @@ export function renderHtml(src: string, outPng: string, w: number, h?: number): 
     const run = (extra: string[], hh: number) => execFileSync(CHROME, ['--headless=new', `--user-data-dir=${PROFILE}`, '--hide-scrollbars',
       '--no-first-run', '--allow-file-access-from-files', '--virtual-time-budget=1000', `--window-size=${W},${hh}`, ...extra, pathToFileURL(page).href],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30000, maxBuffer: 64e6 });
-    if (!h) {
-      frame(800, `<script>f.onload=()=>{try{const b=f.contentDocument.body,c=f.contentWindow.getComputedStyle(b),r=f.contentDocument.createRange();r.selectNodeContents(b);document.title='H'+Math.ceil(r.getBoundingClientRect().bottom+parseFloat(c.paddingBottom)+parseFloat(c.marginBottom))}catch{}}</script>`);
-      const m = /<title>H(\d+)<\/title>/.exec(run(['--dump-dom'], 800));
-      h = Math.min(20000, Math.max(50, m ? Number(m[1]) : 800));
-    }
+    // Measuring pass: content height and width, and fonts that failed to load (reported back to the agent).
+    const mh = h ?? 800;
+    frame(mh, `<script>f.onload=async()=>{try{const d=f.contentDocument,b=d.body,c=f.contentWindow.getComputedStyle(b),r=d.createRange();r.selectNodeContents(b);
+      await d.fonts.ready;const fails=[...d.fonts].filter(x=>x.status==='error').map(x=>x.family.replace(/["']/g,''));
+      document.title='M'+encodeURIComponent(JSON.stringify({h:Math.ceil(r.getBoundingClientRect().bottom+parseFloat(c.paddingBottom)+parseFloat(c.marginBottom)),sw:Math.max(d.documentElement.scrollWidth,b.scrollWidth),fails:[...new Set(fails)]}))}catch{}}</script>`);
+    const m = /<title>M([^<]+)<\/title>/.exec(run(['--dump-dom'], mh));
+    const got: { h: number; sw: number; fails: string[] } | null = m ? JSON.parse(decodeURIComponent(m[1])) : null;
+    const warn: string[] = [];
+    if (got && got.sw > w + 1) warn.push(`content is ${got.sw}px wide, cut at ${w}`);
+    if (got && h && got.h > h + 1) warn.push(`content is ${got.h}px tall, cut at --height ${h}`);
+    if (got?.fails.length) warn.push(`fonts failed to load: ${got.fails.join(', ')}`);
+    if (!h) h = Math.min(20000, Math.max(50, got?.h ?? 800));
     frame(h);
     run([`--screenshot=${outPng}`, '--force-device-scale-factor=2'], h);
     if (!fs.existsSync(outPng)) throw new Error('Chrome did not render the design');
     if (W > w) execFileSync('sips', ['-c', String(h * 2), String(w * 2), outPng], { stdio: 'ignore' });
-    return [w, h];
+    return { w, h, warn };
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 

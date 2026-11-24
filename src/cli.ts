@@ -50,7 +50,8 @@ const root = findRoot() ?? process.cwd();
 
 function out(text: string) {
   if (text) process.stdout.write(text.endsWith('\n') ? text : text + '\n');
-  try { fs.appendFileSync(paths(root).stats, JSON.stringify({ v: verb, c: text.length }) + '\n'); } catch { /* no .drawpad yet */ }
+  // Only what lands in the agent's context (open/app/pick/url are run by the launcher and the human too).
+  if (!['open', 'app', 'pick', 'url', 'serve'].includes(verb)) try { fs.appendFileSync(paths(root).stats, JSON.stringify({ v: verb, c: text.length }) + '\n'); } catch { /* no .drawpad yet */ }
 }
 function fail(msg: string): never { process.stderr.write(msg + '\n'); process.exit(1); }
 

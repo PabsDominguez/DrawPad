@@ -51,14 +51,17 @@ export function place(b: Board, it: Item, o: PlaceOpts): string[] {
   }
   it.x = Math.round(x); it.y = Math.round(y);
 
-  const others = solid(b).filter(i => i.id !== it.id);
+  // Comment cards float over the board, so they never push items. --below keeps its column (moves down).
+  const others = solid(b).filter(i => i.id !== it.id && !i.comment), flow = o.flow ?? (o.below ? 'down' : 'right');
+  let first: Item | undefined;
   for (let n = 0; n < 500; n++) {
     const ob = others.find(o2 => hit(it, o2));
     if (!ob) break;
-    if (o.flow === 'down') it.y = ob.y + ob.h + GAP; else it.x = ob.x + ob.w + GAP;
+    first ??= ob;
+    if (flow === 'down') it.y = ob.y + ob.h + GAP; else it.x = ob.x + ob.w + GAP;
   }
-  if (o.at && (it.x !== Math.round(x) || it.y !== Math.round(y)))
-    problems.push(`overlap at ${Math.round(x)},${Math.round(y)}; placed at ${it.x},${it.y}`);
+  if (first && (o.at || o.below || o.rightOf || o.inRowWith))
+    problems.push(`${first.key} was at ${Math.round(x)},${Math.round(y)}; placed at ${it.x},${it.y}`);
   if (it.kind === 'image' && it.w < 120) problems.push(`small: ${it.w}px wide is hard to read`);
   problems.push(...pushSections(b));
   return problems;

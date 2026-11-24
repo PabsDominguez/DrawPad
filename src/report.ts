@@ -121,7 +121,12 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
   }
   for (const [on, c] of crops) out.push(o.crops ? `  drawn on ${byId.get(on)?.key}: ${A}${c}` : `  (crop of ${byId.get(on)?.key} with drawings: --crops)`);
   for (const r of reacts) out.push(`${r.reaction!.kind} ${r.key} v${r.reaction!.version}${r.reaction!.reason ? `: ${r.reaction!.reason}` : ''}`);
-  for (const r of replies) out.push(`${r.it.key} reply${r.t.edited ? ' (edited)' : ''}: ${r.t.text}`);
+  // Enough context to act without another call: the target, the comment, and what the human is answering.
+  for (const r of replies) {
+    const k = r.it.comment!, th = k.thread, prev = th[th.indexOf(r.t) - 1];
+    const ctx = `"${clip(cur(r.it).text ?? '', 50)}"` + (prev?.by === 'agent' ? ` > you: "${clip(prev.text, 50)}"` : '');
+    out.push(`${r.it.key} reply on ${byId.get(k.target!)?.key ?? '?'} (${ctx})${r.t.edited ? ' (edited)' : ''}: ${r.t.text}`);
+  }
   mark();
   return out.join('\n');
 
