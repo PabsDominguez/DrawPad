@@ -828,16 +828,64 @@ view$.addEventListener('pointerdown', e => {
       } else { region = undefined; showPin(); }
     }, () => {
       const point: [number, number] = region ? [region[0] + region[2] / 2, region[1] + region[3] / 2] : p0;
-      editor({ x: target.x + target.w + 40, y: target.y + point[1] * target.h - 20, w: 240, mode: 'comment', placeholder: 'What should change here?',
-        onSave: async (text, intent) => {
-          const crop = await makeCrop(target, point, region).catch(() => undefined);
-          mark.remove();
-          await create({ op: 'comment', target: target.id, text, intent, point, region, crop });
-          hint('Sent to the agent · click the pin to read it again');
-        }, onCancel: () => mark.remove() });
+      commentEditor(target, point, region, mark);
     });
   }
 });
+// Writes a new comment pinned at point (0..1 of target); mark is the pin/region shown while typing.
+function commentEditor(target: Item, point: [number, number], region: [number, number, number, number] | undefined, mark: HTMLElement) {
+  editor({ x: target.x + target.w + 40, y: target.y + point[1] * target.h - 20, w: 240, mode: 'comment', placeholder: 'What should change here?',
+    onSave: async (text, intent) => {
+      const crop = await makeCrop(target, point, region).catch(() => undefined);
+      mark.remove();
+      await create({ op: 'comment', target: target.id, text, intent, point, region, crop });
+      hint('Saved · Send to agent (⌘↩) when you are done');
+    }, onCancel: () => mark.remove() });
+}
+
+// ---------- right-click menu ----------
+// Quick actions where you clicked: comment / text / frame / copy / paste / delete. Paste here uses the last
+// DrawPad copy (reading the system clipboard from a menu would need a permission prompt).
+let lastCopy = '';
+const cmenu = document.createElement('div'); cmenu.id = 'cmenu'; cmenu.hidden = true; document.body.appendChild(cmenu);
+view$.addEventListener('contextmenu', e => {
+  if (!board || editing) return;
+  const t = e.target as HTMLElement;
+  if (t.closest('.editor, #tools, #zoom')) return;
+  e.preventDefault();
+  const at = toWorld(e.clientX, e.clientY), it = itemAt(e);
+  mouse = at;
+  if (it && !sel.has(it.id)) select([it.id]);
+  if (!it && sel.size && !t.closest('.item')) { /* keep the selection: frame / delete apply to it */ }
+  const target = it && !it.comment && it.kind !== 'mark' && it.kind !== 'arrow' ? it : undefined;
+  const items: [string, string, () => void][] = [];
+  if (target) items.push(['Comment here', 'C', () => {
+    const mark = document.createElement('div'); mark.className = 'pin'; world.appendChild(mark);
+    Object.assign(mark.style, { left: at[0] + 'px', top: at[1] + 'px' });
+    commentEditor(target, local(target, at), undefined, mark);
+  }]);
+  if (!it) items.push(['Text here', 'T', () => editor({ x: at[0], y: at[1], w: 280, mode: 'text', placeholder: 'Text (markdown: # heading, - list, **bold**)', fixedW: true,
+    onSave: text => create({ op: 'add', kind: 'text', text, at, width: 280 }) })]);
+  if (sel.size && [...sel].some(id => { const i = byId.get(id); return i && !i.comment && i.kind !== 'mark'; })) items.push(['Frame selection', '', frameSelection]);
+  else if (!it) items.push(['Draw a frame', 'F', () => { setTool('frame'); hint('Drag to draw a frame'); }]);
+  if (sel.size) items.push(['Copy', '⌘C', () => document.execCommand('copy')]);
+  if (lastCopy.startsWith(CLIP + board.id + ':')) items.push(['Paste here', '⌘V', () => pasteItems(lastCopy.slice(CLIP.length + board!.id.length + 1).split(','))]);
+  if (sel.size) items.push(['Delete', '⌫', deleteSelection]);
+  setHTML(cmenu, items.map(([l, k], i) => `<button data-i="${i}">${l}<span>${k}</span></button>`).join(''));
+  cmenuActs = items.map(x => x[2]);
+  cmenu.hidden = false;
+  const r = cmenu.getBoundingClientRect();
+  Object.assign(cmenu.style, { left: Math.min(e.clientX, innerWidth - r.width - 8) + 'px', top: Math.min(e.clientY, innerHeight - r.height - 8) + 'px' });
+});
+let cmenuActs: (() => void)[] = [];
+cmenu.addEventListener('pointerdown', e => e.stopPropagation());
+cmenu.addEventListener('click', e => {
+  const b = (e.target as HTMLElement).closest('button') as HTMLElement | null;
+  cmenu.hidden = true;
+  if (b) cmenuActs[Number(b.dataset.i)]?.();
+});
+for (const ev of ['pointerdown', 'wheel', 'blur'] as const) window.addEventListener(ev, () => (cmenu.hidden = true), true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cmenu.hidden = true; });
 
 // Hovering a collapsed pin peeks at its comment.
 const peek = document.createElement('div'); peek.id = 'peek'; document.body.appendChild(peek);
@@ -953,6 +1001,7 @@ const CLIP = 'drawpad-items:';
 document.addEventListener('copy', e => {
   if (editing || !board || !sel.size) return;
   const marker = CLIP + board.id + ':' + [...sel].join(',');
+  lastCopy = marker;
   e.preventDefault(); e.clipboardData?.setData('text/plain', marker);
   const one = sel.size === 1 ? byId.get([...sel][0]) : undefined;
   if (one?.kind === 'text' && !one.comment) e.clipboardData?.setData('text/plain', cur(one).text ?? '');

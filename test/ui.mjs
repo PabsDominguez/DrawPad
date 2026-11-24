@@ -126,7 +126,7 @@ try {
 
   // Drawing: Shift pressed mid-drag snaps; drawn on a screen it sticks to it.
   await fit(); a = await box(`[data-id="${id1}"]`);
-  await key('l', 'KeyL');
+  await key('l', 'KeyL'); await sleep(300);
   const ly = (a.y + a.b) / 2;
   await mouse('mousePressed', a.x + 10, ly); await mouse('mouseMoved', a.x + 20, ly + 5);
   await mouse('mouseMoved', a.r - 10, ly + 10, 8); await mouse('mouseReleased', a.r - 10, ly + 10, 8); await sleep(800);
@@ -172,6 +172,16 @@ try {
   check('open comment above screens', await ev(`getComputedStyle(document.querySelector('.item.cm')).zIndex`) === '50000');
   if (process.env.SHOT3) fs.writeFileSync(process.env.SHOT3, Buffer.from((await cmd('Page.captureScreenshot')).result.data, 'base64'));
   await ev(`document.querySelector('#cbtn').click()`);
+  // Right-click menu: Comment here on a screen.
+  await fit(); a = await box(`[data-id="${id1}"]`);
+  const nC = (await board()).items.filter(i => i.comment && i.state === 'active').length;
+  await cmd('Input.dispatchMouseEvent', { type: 'mousePressed', x: a.cx, y: a.y + 30, button: 'right', buttons: 2, clickCount: 1 });
+  await cmd('Input.dispatchMouseEvent', { type: 'mouseReleased', x: a.cx, y: a.y + 30, button: 'right', buttons: 0, clickCount: 1 }); await sleep(400);
+  const menu = await ev(`document.querySelector('#cmenu').hidden ? '' : document.querySelector('#cmenu').textContent`);
+  check('right-click menu on a screen', menu.includes('Comment here') && menu.includes('Delete'), menu);
+  await ev(`[...document.querySelectorAll('#cmenu button')].find(b => b.textContent.startsWith('Comment here')).click()`); await sleep(300);
+  await type('From the menu');
+  check('menu comment created', (await board()).items.filter(i => i.comment && i.state === 'active').length === nC + 1);
   // Board switcher: menu opens (lists real projects; never clicked here), unknown roots are refused.
   await ev(`document.querySelector('#proj').click()`); await sleep(500);
   check('board menu opens', await ev(`!document.querySelector('#projmenu').hidden`));
