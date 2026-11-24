@@ -27,6 +27,8 @@ dp('add', 'image', 'a.png', '--key', 's2', '--section', 'Screens');
 fs.writeFileSync(path.join(dir, 'page.css'), 'body{margin:0;background:#123;color:#fff;font:40px system-ui}');
 fs.writeFileSync(path.join(dir, 'page.html'), '<!doctype html><link rel=stylesheet href=page.css><h1 id=t>Design</h1><div style="height:300px"></div>');
 const addHtml = dp('add', 'html', 'page.html', '--key', 'web', '--width', '800');
+fs.writeFileSync(path.join(dir, 'narrow.html'), '<!doctype html><body style="margin:0"><div style="height:60px;background:#0f0;border-left:10px solid red;border-right:10px solid blue"></div>');
+dp('add', 'html', 'narrow.html', '--key', 'narrow', '--width', '402');
 const URL_ = dp('url');
 
 const chrome = spawn(CHROME, ['--headless=new', '--remote-debugging-port=9339', `--user-data-dir=${prof}`, '--window-size=1400,900', 'about:blank'], { stdio: 'ignore' });
@@ -63,6 +65,9 @@ try {
   await sleep(1000);
   if (process.env.SHOT) fs.writeFileSync(process.env.SHOT, Buffer.from((await cmd('Page.captureScreenshot')).result.data, 'base64'));
   check('design live up close (project css loads)', await ev(`(()=>{const f=document.querySelector('iframe.live.ready');return !!f && getComputedStyle(f.contentDocument?.body??document.body).backgroundColor})()`) !== false, null);
+  const nv = (await byKey('narrow')).versions[0];
+  const edges = await ev(`(async()=>{const i=new Image();i.src='/a/${nv.asset}';await i.decode();const c=document.createElement('canvas');c.width=i.width;c.height=i.height;const g=c.getContext('2d');g.drawImage(i,0,0);const px=x=>[...g.getImageData(x,20,1,1).data.slice(0,3)].join();return [i.width,px(1),px(i.width-2)]})()`);
+  check('narrow design not cropped (402 < 500 min window)', JSON.stringify(edges) === '[804,"255,0,0","0,0,255"]', edges);
   const id1 = (await byKey('s1')).id, id2 = (await byKey('s2')).id;
   let a = await box(`[data-id="${id1}"]`), b = await box(`[data-id="${id2}"]`);
 

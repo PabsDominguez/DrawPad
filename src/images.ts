@@ -28,7 +28,8 @@ export function makeThumb(file: string, pw: number): string | undefined {
 }
 
 // Agent designs (HTML or SVG) rendered to PNG by headless Chrome at 2x. No height = the page's full height.
-// The design sits in an iframe of exactly its width (headless windows are at least 500 wide), then gets cropped.
+// The design sits in an iframe of exactly its width (headless windows are at least 500 wide), centred, then cropped
+// (sips crops around the centre).
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 // Kept between renders: a fresh Chrome profile costs ~3s.
 const PROFILE = path.join(os.homedir(), 'Library', 'Application Support', 'DrawPad', 'render');
@@ -43,7 +44,7 @@ export function renderHtml(src: string, outPng: string, w: number, h?: number): 
       inner = pathToFileURL(f).href;
     }
     const page = path.join(tmp, 'p.html'), W = Math.max(w, 500);
-    const frame = (hh: number, js = '') => fs.writeFileSync(page, `<!doctype html><style>html,body{margin:0;overflow:hidden}</style><iframe id=f src="${inner}" style="border:0;display:block;width:${w}px;height:${hh}px"></iframe>${js}`);
+    const frame = (hh: number, js = '') => fs.writeFileSync(page, `<!doctype html><style>html,body{margin:0;overflow:hidden}</style><iframe id=f src="${inner}" style="border:0;display:block;margin:0 auto;width:${w}px;height:${hh}px"></iframe>${js}`);
     const run = (extra: string[], hh: number) => execFileSync(CHROME, ['--headless=new', `--user-data-dir=${PROFILE}`, '--hide-scrollbars',
       '--no-first-run', '--allow-file-access-from-files', '--virtual-time-budget=1000', `--window-size=${W},${hh}`, ...extra, pathToFileURL(page).href],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30000, maxBuffer: 64e6 });
@@ -55,7 +56,7 @@ export function renderHtml(src: string, outPng: string, w: number, h?: number): 
     frame(h);
     run([`--screenshot=${outPng}`, '--force-device-scale-factor=2'], h);
     if (!fs.existsSync(outPng)) throw new Error('Chrome did not render the design');
-    if (W > w) execFileSync('sips', ['-c', String(h * 2), String(w * 2), '--cropOffset', '0', '0', outPng], { stdio: 'ignore' });
+    if (W > w) execFileSync('sips', ['-c', String(h * 2), String(w * 2), outPng], { stdio: 'ignore' });
     return [w, h];
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
