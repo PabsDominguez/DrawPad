@@ -134,6 +134,7 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
     out.push(`${r.it.key} reply on ${byId.get(k.target!)?.key ?? '?'} (${ctx})${r.t.edited ? ' (edited)' : ''}: ${r.t.text}`);
   }
   mark();
+  out.push('after acting: `drawpad done <comment>` or `drawpad reply <comment> "..."` so the human knows');
   return out.join('\n') + owedText;
 
   function mark() {

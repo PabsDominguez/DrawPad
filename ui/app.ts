@@ -110,7 +110,11 @@ function readState(it: Item): string {
   if (last?.by === 'agent' || (!last && it.createdBy === 'agent')) return 'agent replied';
   const unread = last ? !last.delivered : !it.delivered;
   if (unread && !isSent(last ? last.sent : it.sent)) return 'not sent yet';
-  return unread ? 'sent · not read yet' : 'read by agent ✓';
+  if (unread) return 'sent · not read yet';
+  // Read, and the screen it's on got a new version after the human's last message: the agent acted on it.
+  const t = byId.get(it.comment!.target!), tv = t?.versions.at(-1), said = last ? last.at : it.createdAt;
+  if (tv && t!.createdBy === 'agent' && tv.at > said && tv.v > (it.comment!.targetVersion ?? 0)) return `agent updated → v${tv.v} · check it`;
+  return 'read by agent ✓';
 }
 
 // ---------- view ----------
@@ -239,9 +243,13 @@ function content(it: Item): string {
     const mine = it.createdBy === 'human';
     const close = `<span class="icons">${mine ? `<span class="ic" data-act="edit" title="Edit"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></span>` : ''}<span class="ic" data-act="delete" title="Delete (⌘Z brings it back)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></span>${pinArrow(it) ? `<span class="ic" data-act="close" title="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></span>` : ''}</span>`;
     const state = c.status === 'open' ? readState(it) : c.status === 'addressed' ? 'done by agent' : c.status;
-    const st = `<span class="st s-${c.status}${state.startsWith('read') ? ' read' : ''}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span>`;
+    const st = `<span class="st s-${c.status}${state.startsWith('read') || state.startsWith('agent updated') ? ' read' : ''}">${state}${c.artifact ? ` → ${esc(c.artifact)}` : ''}</span>`;
+    // The agent acted (marked done, or the screen got a new version): say it loudly; resolving is the next step.
+    const acted = c.status === 'addressed' || state.startsWith('agent updated');
+    const t = byId.get(c.target!);
+    const donebar = acted ? `<div class="donebar">✓ ${c.status === 'addressed' ? 'Done by agent' : `Agent updated it (v${t ? cur(t).v : '?'})`} · check ${esc(c.artifact ?? t?.title ?? t?.key ?? 'it')}</div>` : '';
     const acts = c.status !== 'resolved'
-      ? `<div class="acts"><button data-act="reply">Reply</button>${mine ? '<button data-act="resolve">Resolve</button>' : ''}${st}</div>`
+      ? `${donebar}<div class="acts"><button data-act="reply">Reply</button>${mine ? `<button data-act="resolve"${acted ? ' class="primary"' : ''}>Resolve</button>` : ''}${acted ? '' : st}</div>`
       : `<div class="acts"><button data-act="reopen">Reopen</button>${st}</div>`;
     return `<div class="card comment${c.status === 'resolved' ? ' done' : ''}"><div class="head"><span class="chip i-${c.intent}"${mine ? ' data-act="intent" title="Click to change"' : ''}>${c.intent}</span>` +
       `${close}</div>${md(v.text ?? '')}${thread}${acts}</div>${dot}`;
@@ -257,7 +265,7 @@ function render() {
     let el = els.get(it.id);
     if (!el) { el = document.createElement('div'); el.dataset.id = it.id; world.appendChild(el); els.set(it.id, el); }
     const on = sel.has(it.id), one = on && sel.size === 1;
-    const state = `${it.rev}${on}${one}${it.delivered}${it.comment ? `${it.comment.thread.map(t => +!!t.delivered).join('')}${board!.released}` : ''}`; // read/send marks don't bump rev
+    const state = `${it.rev}${on}${one}${it.delivered}${it.comment ? `${it.comment.thread.map(t => +!!t.delivered).join('')}${board!.released}v${byId.get(it.comment.target!)?.versions.length}` : ''}`; // read/send marks don't bump rev
     if (el.dataset.state !== state) {
       el.innerHTML = content(it) + (one && !it.comment ? '<div class="handle"></div>' : '');
       el.dataset.state = state;
@@ -1136,7 +1144,7 @@ let showResolved = false;
 const lastBy = (it: Item) => it.comment!.thread.at(-1)?.by ?? it.createdBy;
 function commentsPanel() {
   const cs = active().filter(i => i.comment);
-  const needs = cs.filter(c => c.comment!.status !== 'resolved' && (c.comment!.status === 'addressed' || lastBy(c) === 'agent'));
+  const needs = cs.filter(c => c.comment!.status !== 'resolved' && (c.comment!.status === 'addressed' || lastBy(c) === 'agent' || readState(c).startsWith('agent updated')));
   const open = cs.filter(c => c.comment!.status !== 'resolved' && !needs.includes(c));
   const held = open.filter(c => readState(c) === 'not sent yet'), waiting = open.filter(c => !held.includes(c));
   const done = cs.filter(c => c.comment!.status === 'resolved');

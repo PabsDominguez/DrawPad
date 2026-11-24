@@ -148,6 +148,8 @@ try {
   const fb = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text();
   await sleep(800);
   check('comment shows read by agent', (await ev(`document.querySelector('.item.cm').textContent`)).includes('read by agent'));
+  dp('add', 'image', 'a.png', '--key', 's1'); await sleep(900);
+  check('agent update shows on the comment', (await ev(`document.querySelector('.item.cm').textContent`)).includes('Agent updated it (v2)'));
   check('top bar says agent read it', (await ev(`document.querySelector('#hint').textContent`)).includes('Agent read your feedback'));
   check('note reported near s2', /new text near s2/.test(fb), fb);
   check('drawing reported', /line on s1/.test(fb), fb);

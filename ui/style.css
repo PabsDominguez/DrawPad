@@ -191,3 +191,6 @@ body.cp #view { right: 290px; }
 /* Live designs sit under an invisible cover: clicks and right-clicks belong to the board, never to the page
    (WebKit otherwise offers its own "Open Frame…" menu on the iframe). */
 .item:has(> iframe.live)::after { content: ''; position: absolute; inset: 0; }
+.comment .donebar { margin: 8px 0 2px; padding: 6px 9px; border-radius: 7px; background: #3ecf8e22; color: #2fb87a; font-weight: 600; font-size: 12px; }
+body.dark .comment .donebar { color: #5fe0a4; }
+.comment button.primary { background: #3ecf8e; border-color: #3ecf8e; color: #0b2a1c; font-weight: 600; }
