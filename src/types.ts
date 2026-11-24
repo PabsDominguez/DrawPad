@@ -79,6 +79,7 @@ export interface Board {
   name: string;
   background: 'dark' | 'light';
   round: number;
+  released?: number;  // human feedback with sent <= released has been sent to the agent (Send button)
   items: Item[];
   sections: Section[];
   relations: unknown[];

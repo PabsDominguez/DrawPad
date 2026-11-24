@@ -30,7 +30,7 @@ export class Store {
     if (fs.existsSync(this.p.board)) this.board = migrate(JSON.parse(fs.readFileSync(this.p.board, 'utf8')));
     else {
       this.board = { schemaVersion: SCHEMA, revision: 0, nextId: 1, id: `b${Date.now().toString(36)}`, name: path.basename(root),
-        background: 'dark', round: 1, items: [], sections: [], relations: [], groups: [], rounds: [] };
+        background: 'dark', round: 1, released: 0, items: [], sections: [], relations: [], groups: [], rounds: [] };
       this.save();
     }
   }
@@ -529,14 +529,23 @@ export class Store {
   }
 
   // Counts of sent-but-undelivered feedback.
-  pending() {
+  // The human's Send button: everything saved so far goes to the agent now (wait returns straight away).
+  release(): string {
+    const n = this.pending(true).total;
+    this.board.released = this.bump(); this.lastHuman = 0; this.save();
+    return `sent ${n}`;
+  }
+
+  // held: count feedback saved but not sent yet instead.
+  pending(held = false) {
+    const r = this.board.released ?? Infinity, ok = (s?: number) => s !== undefined && (held ? s > r : s <= r);
     let comments = 0, items = 0, marks = 0, reactions = 0, replies = 0;
     for (const it of this.board.items) {
-      if (it.createdBy === 'human' && it.sent !== undefined && !it.delivered && it.state === 'active') {
+      if (it.createdBy === 'human' && ok(it.sent) && !it.delivered && it.state === 'active') {
         if (it.comment) comments++; else if (it.kind === 'mark') marks++; else if (it.kind !== 'arrow') items++;
       }
-      if (it.reaction?.sent !== undefined && !it.reaction.delivered) reactions++;
-      for (const t of it.comment?.thread ?? []) if (t.by === 'human' && t.sent !== undefined && !t.delivered) replies++;
+      if (ok(it.reaction?.sent) && !it.reaction!.delivered) reactions++;
+      for (const t of it.comment?.thread ?? []) if (t.by === 'human' && ok(t.sent) && !t.delivered) replies++;
     }
     return { comments, items, marks, reactions, replies, total: comments + items + marks + reactions + replies };
   }
@@ -556,6 +565,7 @@ export function line(s: Store, it: Item): string {
 function migrate(b: Board): Board {
   if (b.schemaVersion > SCHEMA) throw new Error(`board.json schema ${b.schemaVersion} is newer than this drawpad`);
   b.schemaVersion = SCHEMA;
+  b.released ??= b.revision; // boards from before the Send button: everything so far was sent
   // Boards from before drafts were dropped: anything still a draft counts as sent.
   for (const it of b.items) {
     if (it.createdBy === 'human' && it.sent === undefined) { it.sent = b.revision; it.delivered = false; }

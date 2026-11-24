@@ -27,7 +27,8 @@ the agent reads that feedback as compact text. Design and decisions: `SPEC.md`. 
 - The UI (`ui/`), the CLI (`src/cli.ts`) and the hook are thin clients: every mutation is `POST /api/op`
   `{op, ...args}` (see the `ops` map in `server.ts`). `batch` runs several ops as one human undo step.
 - Live refresh: SSE `/api/events` sends the revision; the UI refetches `/api/board` and re-renders.
-- Feedback: human items/replies/drawings are marked `sent` + `delivered=false` when saved (no Send button).
+- Feedback: human items/replies/drawings get `sent` (= revision) + `delivered=false` when saved, but the agent only
+  sees those with `sent <= board.released`; the human's **Send to agent** button (⌘↩, op `release`) moves it.
   `drawpad feedback` prints them and marks them delivered (closes the round). `drawpad hook`
   (UserPromptSubmit) prints one line only when something is waiting.
 

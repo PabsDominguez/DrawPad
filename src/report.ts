@@ -64,7 +64,7 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
   const b = s.board;
   const byId = new Map(b.items.map(i => [i.id, i]));
   const take = (sent: number | undefined, delivered: boolean | undefined) =>
-    sent !== undefined && (o.since !== undefined ? sent > o.since : !delivered);
+    sent !== undefined && sent <= (b.released ?? Infinity) && (o.since !== undefined ? sent > o.since : !delivered);
 
   const items = b.items.filter(i => i.createdBy === 'human' && i.state === 'active' && take(i.sent, i.delivered));
   const reacts = b.items.filter(i => i.reaction && take(i.reaction.sent, i.reaction.delivered));

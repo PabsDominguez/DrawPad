@@ -324,6 +324,7 @@ Built (step 1 plus Pablo's feedback rounds):
 - Selection: box select, Shift-click, ⌘A; move, scale and delete groups; copy/cut/paste.
 - Board switcher: click the board name (top left) to load another project's board in the same window.
 - Frames/sections: drawn frames (F) or Frame on a selection; move by title, resize from the corner.
+- Send to agent (⌘↩): feedback is held until the human sends it (board.released).
 - Comments: pin or region, type (change/question/bug/keep), collapse to pin, hover peek, threads with
   editable replies, resolve; crops (whole image with pin, or region) include the human's drawings.
 - Drawings: line, arrow, rectangle, ellipse (agent sees them as one line of text each, plus a crop).

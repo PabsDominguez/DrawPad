@@ -50,6 +50,7 @@ export function serve(root: string, port = 0): Promise<number> {
     react: a => store.react(a.id, a.kind, a.reason),
     repin: a => store.repin(a.id, a.point, a.region, a.crop),
     seen: a => store.seen(a.ids ?? []),
+    release: () => store.release(),
     frame: a => store.frame(a),
     mark: a => store.mark(a),
     remark: a => store.remark(a.id, a.pts, a.crop),

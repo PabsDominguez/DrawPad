@@ -72,6 +72,7 @@ try {
   check('add html reports problems', /text under 11px/.test(dp('add', 'html', 'tiny.html', '--key', 'tiny', '--width', '300')));
   await fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify({ op: 'comment', target: 'web', text: 'bigger', point: [0.1, 0.05], by: 'human' }) });
   await sleep(2500);
+  await fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify({ op: 'release' }) });
   const pinFb = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text();
   check('pin on a design names its element', /el: #t \d+x\d+ .*"Design"/.test(pinFb), pinFb);
   await fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify({ op: 'archive', id: (await board()).items.find(i => i.comment)?.key }) });
@@ -124,6 +125,10 @@ try {
   b = await box(`[data-id="${id2}"]`);
   await key('t', 'KeyT'); await drag([b.r + 30, b.y], [b.r + 300, b.y + 30]);
   await cmd('Input.insertText', { text: 'Context note' }); await key('Enter', 'Enter', 4); await sleep(900);
+  check('comment held until Send', (await ev(`document.querySelector('.item.cm').textContent`)).includes('not sent yet'));
+  check('nothing reaches the agent before Send', (await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text()) === 'no new feedback');
+  await ev(`document.querySelector('#send').click()`); await sleep(800);
+  check('Send button sends', await ev(`document.querySelector('#send').hidden`) === true);
   check('comment shows not read yet', (await ev(`document.querySelector('.item.cm').textContent`)).includes('not read yet'));
   const fb = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text();
   await sleep(800);

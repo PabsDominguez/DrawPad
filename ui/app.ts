@@ -109,6 +109,7 @@ function readState(it: Item): string {
   const last = it.comment!.thread.at(-1);
   if (last?.by === 'agent' || (!last && it.createdBy === 'agent')) return 'agent replied';
   const unread = last ? !last.delivered : !it.delivered;
+  if (unread && !isSent(last ? last.sent : it.sent)) return 'not sent yet';
   return unread ? 'sent · not read yet' : 'read by agent ✓';
 }
 
@@ -256,7 +257,7 @@ function render() {
     let el = els.get(it.id);
     if (!el) { el = document.createElement('div'); el.dataset.id = it.id; world.appendChild(el); els.set(it.id, el); }
     const on = sel.has(it.id), one = on && sel.size === 1;
-    const state = `${it.rev}${on}${one}${it.delivered}${it.comment?.thread.map(t => +!!t.delivered).join('') ?? ''}`; // read marks don't bump rev
+    const state = `${it.rev}${on}${one}${it.delivered}${it.comment ? `${it.comment.thread.map(t => +!!t.delivered).join('')}${board!.released}` : ''}`; // read/send marks don't bump rev
     if (el.dataset.state !== state) {
       el.innerHTML = content(it) + (one && !it.comment ? '<div class="handle"></div>' : '');
       el.dataset.state = state;
@@ -389,13 +390,29 @@ function outline() {
   setHTML(o, html);
 }
 let lastWaiting = -1;
+// Feedback is held until the human presses Send; then the agent can read it.
+const isSent = (s?: number) => s !== undefined && s <= (board!.released ?? Infinity);
+function unsent() {
+  const r = board!.released ?? Infinity;
+  return active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow' && (i.sent ?? 0) > r).length +
+    active().reduce((n, i) => n + (i.comment?.thread.filter(t => t.by === 'human' && !t.delivered && (t.sent ?? 0) > r).length ?? 0), 0);
+}
 function status() {
-  const waiting = active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow').length +
-    active().reduce((n, i) => n + (i.comment?.thread.filter(t => t.by === 'human' && !t.delivered).length ?? 0), 0);
+  const waiting = active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow' && isSent(i.sent)).length +
+    active().reduce((n, i) => n + (i.comment?.thread.filter(t => t.by === 'human' && !t.delivered && isSent(t.sent)).length ?? 0), 0);
   if (lastWaiting > 0 && waiting < lastWaiting) hint('Agent read your feedback ✓');
   lastWaiting = waiting;
+  const held = unsent();
   setHTML($('#proj'), `${esc(board!.name)} ▾`);
+  setHTML($('#send'), held ? `Send to agent · ${held}` : '');
+  $('#send').hidden = !held;
   setHTML($('#status'), `round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`);
+}
+async function sendFeedback() {
+  const n = unsent();
+  if (!n) return hint('Nothing new to send');
+  await op({ op: 'release' });
+  hint(`Sent ${n} to the agent`);
 }
 function selbar() {
   const s = $('#selbar'), sec = board!.sections.find(x => x.id === selSec);
@@ -1061,7 +1078,8 @@ const lastBy = (it: Item) => it.comment!.thread.at(-1)?.by ?? it.createdBy;
 function commentsPanel() {
   const cs = active().filter(i => i.comment);
   const needs = cs.filter(c => c.comment!.status !== 'resolved' && (c.comment!.status === 'addressed' || lastBy(c) === 'agent'));
-  const waiting = cs.filter(c => c.comment!.status !== 'resolved' && !needs.includes(c));
+  const open = cs.filter(c => c.comment!.status !== 'resolved' && !needs.includes(c));
+  const held = open.filter(c => readState(c) === 'not sent yet'), waiting = open.filter(c => !held.includes(c));
   const done = cs.filter(c => c.comment!.status === 'resolved');
   $('#cbtn').textContent = needs.length ? `Comments · ${needs.length} for you` : 'Comments';
   $('#cbtn').classList.toggle('hot', needs.length > 0);
@@ -1072,7 +1090,7 @@ function commentsPanel() {
       `<span class="ct">${esc(cur(c).text ?? '')}</span><span class="cm2">${esc(t?.title ?? t?.key ?? '')}${n ? ` · ${n} repl${n > 1 ? 'ies' : 'y'}` : ''}${c.createdBy === 'agent' ? ' · agent' : ''}${k.status === 'open' ? ` · ${readState(c)}` : ''}</span></div>`;
   };
   const group = (title: string, list: Item[], note: string) => list.length ? `<h4>${title} <span>${list.length}</span></h4><p class="cn">${note}</p>${list.map(row).join('')}` : '';
-  setHTML($('#cpanel'), group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'not answered yet') +
+  setHTML($('#cpanel'), group('Not sent yet', held, 'press Send to agent (⌘↩) when you are done') + group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'sent, not answered yet') +
     (done.length ? `<h4 class="tog" data-c="resolved">Resolved <span>${done.length}</span> ${showResolved ? '▾' : '▸'}</h4>${showResolved ? done.map(row).join('') : ''}` : '') +
     (cs.length ? '' : '<p class="cn">No comments yet. Press C and click a screen.</p>'));
 }
@@ -1090,3 +1108,9 @@ document.addEventListener('click', e => {
   sel = new Set([c.id]); render();
 });
 if (localStorage.getItem('cp')) document.body.classList.add('cp');
+
+$('#send').addEventListener('click', () => { sendFeedback(); });
+// ⌘↩ sends (when not typing in an editor, where it saves).
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !(e.target as HTMLElement).closest('textarea,input,[contenteditable]')) { e.preventDefault(); sendFeedback(); }
+});
