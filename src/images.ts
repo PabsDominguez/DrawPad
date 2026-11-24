@@ -114,6 +114,8 @@ export async function renderHtml(src: string, outPng: string, w: number, h?: num
   }
   try {
     return await withPage(url, w, h ?? 800, async S => {
+      // SVGs (icons, logos) keep their transparency; HTML pages get the browser's usual white.
+      if (tmp) await S('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
       const got: { m: { h: number; sw: number; fails: string[] }; c: string[] } = await probe(S, '{m:measure(d),c:checks(d)}');
       const warn: string[] = [];
       if (h && got.m.h > h + 1) warn.push(`content is ${got.m.h}px tall, cut at --height ${h}`);
