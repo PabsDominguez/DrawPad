@@ -30,7 +30,8 @@ const HELP = `drawpad: shared visual board for a human and an agent
   reply <comment> "text"     done <comment> [--artifact K]
   arrow <from> <to> [--point x,y] [--label L]
   section "Title" [keys...]  move <key> --at x,y  archive|restore <key>
-  hook                       one line when feedback waits (UserPromptSubmit hook)
+  hook [--wait S]            Claude Code hook (UserPromptSubmit, PostToolUse, Stop): tells the agent when
+                             sent feedback waits; on Stop, --wait S holds up to S seconds for a Send
   wait [--timeout S] [--feedback] [--section S]   blocks until feedback waits and the human paused ~8s;
       --feedback prints it (= feedback). Run in the background, start again after handling it
   open                       board in its own window
@@ -267,9 +268,30 @@ async function main() {
     }
     case 'archive': case 'restore': return out(await op({ op: verb, id: pos[0] }));
     case 'hook': {
-      // Reads the file directly: fast, never starts a server, silent when nothing waits.
+      // Claude Code hook (reads the board file directly: fast, never starts a server, silent when nothing waits).
+      // UserPromptSubmit: a line of context. PostToolUse: the same line, once per change (no repeats every call).
+      // Stop: keeps the agent going while sent feedback waits; --wait S holds the stop up to S seconds for a Send.
       if (!findRoot()) return;
-      return out(hookLine(new Store(root).pending()));
+      let ev: { hook_event_name?: string; stop_hook_active?: boolean } = {};
+      if (!process.stdin.isTTY) try { ev = JSON.parse(fs.readFileSync(0, 'utf8') || '{}'); } catch { /* manual run */ }
+      const line = () => hookLine(new Store(root).pending(false, str('section')));
+      if (ev.hook_event_name === 'Stop') {
+        if (ev.stop_hook_active) return; // already continued once for this stop: let it stop
+        let l = line();
+        for (const until = Date.now() + (num('wait') ?? 0) * 1000; !l && Date.now() < until; l = line()) await new Promise(r => setTimeout(r, 2000));
+        if (l) process.stdout.write(JSON.stringify({ decision: 'block', reason: l }));
+        return;
+      }
+      const l = line();
+      if (ev.hook_event_name === 'PostToolUse') {
+        const mark = path.join(paths(root).dir, 'hook-last');
+        let last = ''; try { last = fs.readFileSync(mark, 'utf8'); } catch { /* first */ }
+        if (l === last) return;
+        fs.writeFileSync(mark, l);
+        if (l) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: l } }));
+        return;
+      }
+      return out(l);
     }
     case 'wait': { // in 4-minute slices: Node's fetch drops a response that stays silent for 5 minutes
       const until = num('timeout') ? Date.now() + num('timeout')! * 1000 : Infinity;

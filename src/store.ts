@@ -103,6 +103,16 @@ export class Store {
         file = path.join(this.p.assets, name);
         fs.copyFileSync(a.path, file);
       } else throw new Error('image needs a path');
+      // A capture identical to another item's current image is usually a stale screenshot (wrong screen).
+      if (by === 'agent') {
+        const bytes = fs.readFileSync(file);
+        const twin = this.board.items.find(o => o.key !== key && o.kind === 'image' && o.state === 'active' && (() => {
+          const f = o.versions.at(-1)?.asset; if (!f) return false;
+          const p = path.join(this.p.assets, f);
+          try { return fs.statSync(p).size === bytes.length && fs.readFileSync(p).equals(bytes); } catch { return false; }
+        })());
+        if (twin) renderWarn.push(`identical to ${twin.key} v${twin.versions.at(-1)!.v}: stale capture?`);
+      }
       const size = imageSize(file) ?? (a.pw && a.ph ? [a.pw, a.ph] : [800, 600]);
       ver.asset = path.basename(file); [ver.pw, ver.ph] = size;
       ver.thumb = makeThumb(file, size[0]);

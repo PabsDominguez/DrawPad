@@ -81,7 +81,11 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
     mark(); return JSON.stringify({ rev: b.revision, comments, news, arrows, reactions: reacts.map(i => ({ key: i.key, ...i.reaction })), replies: replies.map(r => ({ key: r.it.key, text: r.t.text })) });
   }
   const total = comments.length + news.length + marks.length + arrows.length + reacts.length + replies.length;
-  if (!total) return 'no new feedback';
+  // Comments the agent has read but not answered or marked done: never let them hide behind "no new".
+  const owed = scoped.filter(c => c.comment && c.state === 'active' && c.createdBy === 'human' && c.comment.status === 'open' && c.comment.intent !== 'keep' &&
+    c.delivered && (c.comment.thread.at(-1)?.by ?? 'human') === 'human' && !items.includes(c));
+  const owedText = owed.length ? `\nstill waiting on you (${owed.length}): ` + owed.map(c => `${c.key} on ${byId.get(c.comment!.target!)?.key} "${clip(cur(c).text ?? '', 50)}"`).join('; ') : '';
+  if (!total) return 'no new feedback' + owedText;
 
   const out = [`feedback rev ${b.revision}: ${todo.length} to-do, ${keep.length} keep, ${news.length} new, ${reacts.length} reactions${marks.length ? `, ${marks.length} drawings` : ''}`];
   const pointTo = (it: Item) => b.items.filter(a => a.kind === 'arrow' && a.from === it.id && a.state === 'active').map(a => byId.get(a.to!)?.key).filter(Boolean);
@@ -130,7 +134,7 @@ export function feedbackText(s: Store, o: FeedbackOpts): string {
     out.push(`${r.it.key} reply on ${byId.get(k.target!)?.key ?? '?'} (${ctx})${r.t.edited ? ' (edited)' : ''}: ${r.t.text}`);
   }
   mark();
-  return out.join('\n');
+  return out.join('\n') + owedText;
 
   function mark() {
     for (const i of items) i.delivered = true;

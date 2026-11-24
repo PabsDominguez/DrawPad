@@ -46,21 +46,25 @@ What the agent gets back without reading images:
   `el: .row:nth-child(3) .zone 96x52 bg #d63a53 color #ffffff 15px "Legs"`.
 - `drawpad outline <key>`: the design's visible text with positions and sizes.
 
-## Claude Code hook
+## Claude Code hooks
 
-In the project's `.claude/settings.json`, so new feedback shows up in context each turn
-(prints nothing when there is none):
+In the project's `.claude/settings.json` (or `settings.local.json`). `drawpad hook` is silent when nothing waits.
 
 ```json
-{ "hooks": { "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "drawpad hook" } ] } ] } }
+{ "hooks": {
+  "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "drawpad hook" } ] } ],
+  "PostToolUse":      [ { "hooks": [ { "type": "command", "command": "drawpad hook" } ] } ],
+  "Stop":             [ { "hooks": [ { "type": "command", "command": "drawpad hook --wait 1800", "timeout": 1860 } ] } ]
+} }
 ```
 
-Your comments, notes and drawings are held until you press **Send to agent** (top bar, ⌘↩); only then do
-`feedback`, the hook and `wait` see them.
+- UserPromptSubmit / PostToolUse: one line of context when sent feedback waits (PostToolUse only when it changes).
+- Stop: the agent doesn't stop while sent feedback waits; it is told to run `drawpad feedback`. With `--wait S` it
+  holds the stop until you press **Send to agent** (up to S seconds), so you never have to come back to the chat.
+  The session shows as busy meanwhile; interrupt it as usual. Without `--wait` it only catches feedback sent
+  while the agent was working.
 
-Or, hands-free: the agent runs `drawpad wait --feedback` as a background command. It returns the feedback once
-some is waiting and the human has paused for ~8 seconds; Claude Code wakes the agent when it returns, so it
-acts without being told. The agent starts it again after each round.
+Your comments, notes and drawings are held until you press **Send to agent** (top bar, ⌘↩).
 
 ## Human controls
 
