@@ -60,6 +60,8 @@ the agent reads that feedback as compact text. Design and decisions: `SPEC.md`. 
 - Drawings stuck to an image store 0..1 coords of that image and are burned into its crops.
 
 ## Working on it
+- **First, read `inbox.md`** (gitignored): reports from agents using DrawPad in other projects (`drawpad tell-dev`).
+  Summarise new entries for Pablo with a recommendation each; move handled ones to `inbox-done.md`.
 - `npm run check` (types) and `npm run test:ui` (headless; opens nothing on screen) after changes.
   Add a check to `test/ui.mjs` for each behaviour you fix or add.
 - Never open windows or dialogs on Pablo's screen to test without asking.

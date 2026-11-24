@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/inbox.md\"; [ -s \"$f\" ] && echo \"DrawPad inbox: $(grep -c '^## ' \"$f\") report(s) from agents using DrawPad. Read inbox.md and summarise them for Pablo first.\" || true"
+          }
+        ]
+      }
+    ]
+  }
+}

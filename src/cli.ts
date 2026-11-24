@@ -36,7 +36,9 @@ const HELP = `drawpad: shared visual board for a human and an agent
       --feedback prints it (= feedback). Run in the background, start again after handling it
   open                       board in its own window
   app                        build ~/Applications/DrawPad.app (native board window, own Dock icon)
-  serve [--port P]  url  stats`;
+  serve [--port P]  url  stats
+  tell-dev "..."             DrawPad got in your way or cost you time/tokens? Report it (one point, what you
+                             tried, what happened, what would help). Goes to DrawPad's developers.`;
 
 const BOOL = new Set(['crops', 'json', 'help', 'quiet', 'feedback', 'boxes']);
 const KNOWN = new Set([...BOOL, 'height', 'port', 'since', 'timeout', 'version', 'wait', 'width', 'at', 'point', 'artifact', 'below', 'bundle',
@@ -247,6 +249,13 @@ async function main() {
       const res = await op({ op: 'add', ...addArgs('image', tmp) });
       fs.rmSync(tmp, { force: true });
       return out(res);
+    }
+    case 'tell-dev': { // feedback about DrawPad itself, to DrawPad's own repo (read by agents working on DrawPad)
+      const text = pos.join(' ').trim() || (process.stdin.isTTY ? '' : fs.readFileSync(0, 'utf8').trim());
+      if (!text) fail('tell-dev "what went wrong or what would help"');
+      const inbox = fileURLToPath(new URL('../inbox.md', import.meta.url));
+      fs.appendFileSync(inbox, `\n## ${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${path.basename(root)}\n${text}\n`);
+      return out('thanks, sent to the DrawPad developers');
     }
     case 'title': return out(await op({ op: 'edit', id: pos[0], title: pos.slice(1).join(' '), by: 'agent' }));
     case 'outline': return out(await api('/api/outline?key=' + encodeURIComponent(pos[0] ?? '') + (fl.boxes ? '&boxes=1' : '')));
