@@ -276,7 +276,7 @@ function render() {
   for (const [id, el] of secEls) if (!liveS.has(id)) { el.remove(); secEls.delete(id); }
 
   groupBox();
-  outline(); status(); selbar(); cull(); drawArrows();
+  outline(); status(); selbar(); cull(); drawArrows(); commentsPanel();
   requestAnimationFrame(fitCards);
 }
 // Text cards grow to their content; the real height goes back to the server so placement stays honest.
@@ -1041,3 +1041,40 @@ document.addEventListener('click', async e => {
   const r = await fetch('/api/switch', { method: 'POST', body: JSON.stringify({ root: b.dataset.root }) });
   if (r.ok) location.href = await r.text(); else hint('Could not open ' + b.textContent);
 });
+
+// ---------- comments panel ----------
+// Every comment in one list, grouped by who has the ball. Click a row: zoom to its screen and open it.
+let showResolved = false;
+const lastBy = (it: Item) => it.comment!.thread.at(-1)?.by ?? it.createdBy;
+function commentsPanel() {
+  const cs = active().filter(i => i.comment);
+  const needs = cs.filter(c => c.comment!.status !== 'resolved' && (c.comment!.status === 'addressed' || lastBy(c) === 'agent'));
+  const waiting = cs.filter(c => c.comment!.status !== 'resolved' && !needs.includes(c));
+  const done = cs.filter(c => c.comment!.status === 'resolved');
+  $('#cbtn').textContent = needs.length ? `Comments · ${needs.length} for you` : 'Comments';
+  $('#cbtn').classList.toggle('hot', needs.length > 0);
+  if (!document.body.classList.contains('cp')) return;
+  const row = (c: Item) => {
+    const k = c.comment!, t = byId.get(k.target!), n = k.thread.length;
+    return `<div class="crow${sel.has(c.id) ? ' on' : ''}" data-c="${c.id}"><span class="chip i-${k.intent}">${k.intent}</span>` +
+      `<span class="ct">${esc(cur(c).text ?? '')}</span><span class="cm2">${esc(t?.title ?? t?.key ?? '')}${n ? ` · ${n} repl${n > 1 ? 'ies' : 'y'}` : ''}${c.createdBy === 'agent' ? ' · agent' : ''}</span></div>`;
+  };
+  const group = (title: string, list: Item[], note: string) => list.length ? `<h4>${title} <span>${list.length}</span></h4><p class="cn">${note}</p>${list.map(row).join('')}` : '';
+  setHTML($('#cpanel'), group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'not answered yet') +
+    (done.length ? `<h4 class="tog" data-c="resolved">Resolved <span>${done.length}</span> ${showResolved ? '▾' : '▸'}</h4>${showResolved ? done.map(row).join('') : ''}` : '') +
+    (cs.length ? '' : '<p class="cn">No comments yet. Press C and click a screen.</p>'));
+}
+document.addEventListener('click', e => {
+  const t = e.target as HTMLElement;
+  if (t.closest('#cbtn')) { document.body.classList.toggle('cp'); localStorage.setItem('cp', document.body.classList.contains('cp') ? '1' : ''); commentsPanel(); return; }
+  const r = t.closest('#cpanel [data-c]') as HTMLElement | null;
+  if (!r) return;
+  if (r.dataset.c === 'resolved') { showResolved = !showResolved; return commentsPanel(); }
+  const c = byId.get(r.dataset.c!); if (!c) return;
+  const tg = byId.get(c.comment!.target!);
+  // The screen plus the card's corner (cards keep screen size, so leave ~its size around it).
+  fit(bbox([...(tg ? [tg] : []), { x: c.x, y: c.y, w: 260, h: 160 }]));
+  if (closed(c)) toggleOpen(c);
+  sel = new Set([c.id]); render();
+});
+if (localStorage.getItem('cp')) document.body.classList.add('cp');

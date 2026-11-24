@@ -335,7 +335,7 @@ Step 2 part 1 built (2026-11-24): `add html <file.html|svg>` = an image item wit
 iframe when it is >= 360px on screen; `/p/` serves project files for its relative links. Re-add = version.
 
 Not built yet: themes/tokens grid, components, option sets with picks (Approve/Reject is hidden in the UI until then),
-`shot board`, version stepper, `capture url`. Deferred until needed: a comments overview panel.
+`shot board`, version stepper, `capture url`. Comments panel (top bar "Comments"): grouped For you / With the agent / Resolved; a row zooms to the screen and opens the comment.
 
 Sharing later: replace `sips` with JS image sizing and browser thumbnails (cross-platform), publish to npm,
 package hook + a skill as a Claude Code plugin, add a licence.

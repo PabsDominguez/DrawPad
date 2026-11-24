@@ -142,6 +142,14 @@ try {
   const bd = await board(), fr = bd.sections.at(-1);
   check('frame adopts s2', fr.w > 0 && bd.items.find(i => i.key === 's2').section === fr.id, fr);
 
+  // Comments panel: lists comments; a row zooms to the screen and opens the comment.
+  await ev(`document.querySelector('#cbtn').click()`); await sleep(400);
+  check('comments panel lists the comment', (await ev(`document.querySelector('#cpanel').textContent`)).includes('Header too heavy'));
+  await ev(`document.querySelector('#cpanel .crow').click()`); await sleep(600);
+  check('row opens its comment', await ev(`document.querySelectorAll('.item.cm:not(.closed)').length`) >= 1);
+  check('open comment above screens', await ev(`getComputedStyle(document.querySelector('.item.cm')).zIndex`) === '50000');
+  if (process.env.SHOT3) fs.writeFileSync(process.env.SHOT3, Buffer.from((await cmd('Page.captureScreenshot')).result.data, 'base64'));
+  await ev(`document.querySelector('#cbtn').click()`);
   // Board switcher: menu opens (lists real projects; never clicked here), unknown roots are refused.
   await ev(`document.querySelector('#proj').click()`); await sleep(500);
   check('board menu opens', await ev(`!document.querySelector('#projmenu').hidden`));
