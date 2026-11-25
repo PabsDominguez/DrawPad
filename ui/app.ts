@@ -429,6 +429,7 @@ function unsent() {
   return active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow' && (i.sent ?? 0) > r).length +
     active().reduce((n, i) => n + (i.comment?.thread.filter(t => t.by === 'human' && !t.delivered && (t.sent ?? 0) > r).length ?? 0), 0);
 }
+let lastHeld = -1;
 function status() {
   const waiting = active().filter(i => i.createdBy === 'human' && !i.delivered && i.kind !== 'arrow' && isSent(i.sent)).length +
     active().reduce((n, i) => n + (i.comment?.thread.filter(t => t.by === 'human' && !t.delivered && isSent(t.sent)).length ?? 0), 0);
@@ -436,9 +437,12 @@ function status() {
   lastWaiting = waiting;
   const held = unsent();
   setHTML($('#proj'), `${esc(board!.name)} ▾`);
-  setHTML($('#send'), held ? `Send to agent · ${held}` : '');
-  $('#send').hidden = !held;
-  setHTML($('#status'), `round ${board!.round}${waiting ? ` · ${waiting} not yet read by the agent` : ''}`);
+  setHTML($('#send'), held ? `Send to agent · ${held} <span>⌘↩</span>` : 'Nothing new to send');
+  ($('#send') as HTMLButtonElement).disabled = !held;
+  setHTML($('#status'), waiting ? `${waiting} sent, not read yet` : '');
+  // Something to send: open the panel once so the Send button is in sight.
+  if (held && !lastHeld && !document.body.classList.contains('cp')) { document.body.classList.add('cp'); commentsPanel(); }
+  lastHeld = held;
 }
 async function sendFeedback() {
   const n = unsent();
@@ -1187,8 +1191,9 @@ function commentsPanel() {
   const open = cs.filter(c => c.comment!.status !== 'resolved' && !needs.includes(c));
   const held = open.filter(c => readState(c) === 'not sent yet'), waiting = open.filter(c => !held.includes(c));
   const done = cs.filter(c => c.comment!.status === 'resolved');
-  $('#cbtn').textContent = needs.length ? `Comments · ${needs.length} for you` : 'Comments';
-  $('#cbtn').classList.toggle('hot', needs.length > 0);
+  const held2 = unsent();
+  setHTML($('#cbtn'), `Comments${held2 ? `<b class="badge send">${held2} to send</b>` : needs.length ? `<b class="badge">${needs.length} for you</b>` : ''}`);
+  $('#cbtn').classList.toggle('hot', needs.length > 0 || held2 > 0);
   if (!document.body.classList.contains('cp')) return;
   const row = (c: Item) => {
     const k = c.comment!, t = byId.get(k.target!), n = k.thread.length;
@@ -1196,7 +1201,7 @@ function commentsPanel() {
       `<span class="ct">${esc(cur(c).text ?? '')}</span><span class="cm2">${esc(t?.title ?? t?.key ?? '')}${n ? ` · ${n} repl${n > 1 ? 'ies' : 'y'}` : ''}${c.createdBy === 'agent' ? ' · agent' : ''}${k.status === 'open' ? ` · ${readState(c)}` : ''}</span></div>`;
   };
   const group = (title: string, list: Item[], note: string) => list.length ? `<h4>${title} <span>${list.length}</span></h4><p class="cn">${note}</p>${list.map(row).join('')}` : '';
-  setHTML($('#cpanel'), `<div class="ceye" data-c="eye" title="Show or hide comments on the canvas">Show on canvas<span class="sw${hideComments ? '' : ' on'}"></span></div>` + group('Not sent yet', held, 'press Send to agent (⌘↩) when you are done') + group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'sent, not answered yet') +
+  setHTML($('#clist'), `<div class="ceye" data-c="eye" title="Show or hide comments on the canvas">Show on canvas<span class="sw${hideComments ? '' : ' on'}"></span></div>` + group('Not sent yet', held, 'press Send to agent (⌘↩) when you are done') + group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'sent, not answered yet') +
     (done.length ? `<h4 class="tog" data-c="resolved">Resolved <span>${done.length}</span> ${showResolved ? '▾' : '▸'}</h4>${showResolved ? done.map(row).join('') : ''}` : '') +
     (cs.length ? '' : '<p class="cn">No comments yet. Press C and click a screen.</p>'));
 }

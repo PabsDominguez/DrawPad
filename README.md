@@ -65,7 +65,7 @@ In the project's `.claude/settings.json` (or `settings.local.json`). `drawpad ho
   The session shows as busy meanwhile; interrupt it as usual. Without `--wait` it only catches feedback sent
   while the agent was working.
 
-Your comments, notes and drawings are held until you press **Send to agent** (top bar, ⌘↩).
+Your comments, notes and drawings are held until you press **Send to agent** (bottom of the Comments panel, ⌘↩).
 
 ## Human controls
 

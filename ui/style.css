@@ -12,7 +12,6 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 #bar button:disabled { opacity: .4; cursor: default; }
 #bar .sep { width: 1px; height: 20px; background: var(--line); margin: 0 6px; }
 #bar .grow { flex: 1; }
-#status { color: var(--dim); margin-right: 8px; }
 #selbar { display: flex; gap: 4px; align-items: center; color: var(--dim); }
 #selbar code { color: var(--fg); cursor: copy; }
 
@@ -163,9 +162,17 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 #bar #projmenu button { background: none; border: 0; text-align: left; padding: 6px 10px; border-radius: 4px; color: var(--fg); cursor: pointer; }
 #bar #projmenu button:hover { background: var(--accent); color: #fff; }
 #projmenu button.cur::after { content: ' ✓'; color: var(--dim); }
-#cpanel { display: none; position: fixed; top: 40px; right: 0; bottom: 0; width: 290px; overflow: auto; padding: 6px 0 20px;
+#cpanel { display: none; position: fixed; top: 40px; right: 0; bottom: 0; width: 290px; flex-direction: column;
   background: var(--card); border-left: 1px solid var(--line); z-index: 5; font-size: 12px; }
-body.cp #cpanel { display: block; }
+body.cp #cpanel { display: flex; }
+#clist { flex: 1; overflow: auto; padding: 6px 0 12px; }
+#cfoot { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+#cfoot #status { color: var(--dim); font-size: 11px; } #cfoot #status:empty { display: none; }
+#cfoot #send { font: inherit; font-weight: 600; padding: 8px; border-radius: 6px; border: 0; background: var(--accent); color: #fff; cursor: pointer; display: flex; justify-content: center; gap: 8px; }
+#cfoot #send span { opacity: .7; font-weight: 400; }
+#cfoot #send:disabled { background: var(--sec); color: var(--dim); cursor: default; font-weight: 400; }
+#bar #cbtn { display: flex; align-items: center; gap: 6px; }
+#cbtn .badge { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; }
 body.cp #view { right: 290px; }
 #cpanel h4 { margin: 12px 12px 0; font-size: 12px; font-weight: 600; }
 #cpanel h4 span { color: var(--dim); font-weight: 400; }
@@ -182,8 +189,6 @@ body.cp #view { right: 290px; }
 #cpanel .cm2 { grid-column: 2; color: var(--dim); font-size: 11px; }
 #bar #cbtn.hot { border-color: var(--accent); color: var(--accent); }
 .comment .st.read { color: #3fb27f; }
-#bar #send { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-#bar #send[hidden] { display: none; }
 #cmenu { position: fixed; z-index: 60; min-width: 190px; padding: 4px; display: flex; flex-direction: column;
   background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px #0006; }
 #cmenu[hidden] { display: none; }

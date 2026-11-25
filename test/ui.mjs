@@ -142,8 +142,9 @@ try {
   await cmd('Input.insertText', { text: 'Context note' }); await key('Enter', 'Enter', 4); await sleep(900);
   check('comment held until Send', (await ev(`document.querySelector('.item.cm').textContent`)).includes('not sent yet'));
   check('nothing reaches the agent before Send', (await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text()) === 'no new feedback');
+  check('panel opens with Send when there is something to send', await ev(`document.body.classList.contains('cp') && document.querySelector('#cbtn').textContent.includes('to send')`));
   await ev(`document.querySelector('#send').click()`); await sleep(800);
-  check('Send button sends', await ev(`document.querySelector('#send').hidden`) === true);
+  check('Send button sends', await ev(`document.querySelector('#send').disabled`) === true);
   check('comment shows not read yet', (await ev(`document.querySelector('.item.cm').textContent`)).includes('not read yet'));
   const fb = await (await fetch(URL_ + 'api/feedback', { method: 'POST', body: '{}' })).text();
   await sleep(800);
@@ -169,7 +170,7 @@ try {
   check('frame adopts s2', fr.w > 0 && bd.items.find(i => i.key === 's2').section === fr.id, fr);
 
   // Comments panel: lists comments; a row zooms to the screen and opens the comment.
-  await ev(`document.querySelector('#cbtn').click()`); await sleep(400);
+  await ev(`document.body.classList.contains('cp') || document.querySelector('#cbtn').click()`); await sleep(400);
   check('comments panel lists the comment', (await ev(`document.querySelector('#cpanel').textContent`)).includes('Header too heavy'));
   await ev(`document.querySelector('#cpanel .crow').click()`); await sleep(600);
   check('row opens its comment', await ev(`document.querySelectorAll('.item.cm:not(.closed)').length`) >= 1);
