@@ -6,6 +6,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import os from 'node:os';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const BIN = path.join(import.meta.dirname, '..', 'bin', 'drawpad.js');
@@ -212,6 +213,12 @@ try {
   check('board menu opens', await ev(`!document.querySelector('#projmenu').hidden`));
   check('switch refuses unknown project', (await fetch(URL_ + 'api/switch', { method: 'POST', body: JSON.stringify({ root: '/etc' }) })).status === 400);
   if (process.env.SHOT2) fs.writeFileSync(process.env.SHOT2, Buffer.from((await cmd('Page.captureScreenshot')).result.data, 'base64'));
+  { const stray = fs.mkdtempSync(path.join(os.tmpdir(), 'drawpad-stray-'));
+    const o = execFileSync(process.execPath, [BIN, 'add', 'text', 'x', '--key', 'n'], { cwd: stray, encoding: 'utf8' });
+    check('new board is announced', o.startsWith('new board in'), o);
+    try { process.kill(JSON.parse(fs.readFileSync(path.join(stray, '.drawpad', 'server.json'), 'utf8')).pid); } catch { /* gone */ }
+    fs.rmSync(stray, { recursive: true, force: true }); }
+  check('existing board not announced', !dp('add', 'text', 'y', '--key', 'nn', '--no-push', '--at', '9000,9000').includes('new board'));
   check('no page errors', errs.length === 0, errs);
 } catch (e) { console.log('FAIL crashed:', e.message); failed++; }
 finally {

@@ -4,7 +4,7 @@ import type { Board, Item, Section } from './types.ts';
 export const GAP = 40, PAD = 40, SECTION_GAP = 160, ROW_MAX = 3600;
 
 export interface Rect { x: number; y: number; w: number; h: number }
-export interface PlaceOpts { at?: [number, number]; below?: Item; rightOf?: Item; inRowWith?: Item; flow?: 'right' | 'down' }
+export interface PlaceOpts { at?: [number, number]; below?: Item; rightOf?: Item; inRowWith?: Item; noPush?: boolean; flow?: 'right' | 'down' }
 
 export const solid = (b: Board) => b.items.filter(i => i.state === 'active' && i.kind !== 'arrow' && i.kind !== 'mark');
 const members = (b: Board, s: Section) => solid(b).filter(i => i.section === s.id);
@@ -63,7 +63,7 @@ export function place(b: Board, it: Item, o: PlaceOpts): string[] {
   if (first && (o.at || o.below || o.rightOf || o.inRowWith))
     problems.push(`${first.key} was at ${Math.round(x)},${Math.round(y)}; placed at ${it.x},${it.y}`);
   if (it.kind === 'image' && it.w < 120) problems.push(`small: ${it.w}px wide is hard to read`);
-  problems.push(...pushSections(b));
+  if (!o.noPush) problems.push(...pushSections(b).map(m => m + ' (--no-push keeps it)'));
   return problems;
 }
 

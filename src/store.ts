@@ -9,7 +9,7 @@ export interface AddArgs {
   kind: 'image' | 'text' | 'link' | 'html';
   key?: string; title?: string; section?: string;
   path?: string; asset?: string; text?: string; url?: string;
-  at?: [number, number]; below?: string; rightOf?: string; inRowWith?: string;
+  at?: [number, number]; below?: string; rightOf?: string; inRowWith?: string; noPush?: boolean;
   width?: number; height?: number; pw?: number; ph?: number;
   source?: Source; note?: string; by?: By; color?: string;
   rendered?: { png: string; w: number; h: number; warn: string[] }; // designs: made by addDesign
@@ -156,9 +156,9 @@ export class Store {
     } else {
       if (sec) it.section = sec.id;
       const anchor = (r?: string) => (r ? this.find(r) : undefined);
-      const o = { at: a.at, below: anchor(a.below), rightOf: anchor(a.rightOf), inRowWith: anchor(a.inRowWith) };
+      const o = { at: a.at, below: anchor(a.below), rightOf: anchor(a.rightOf), inRowWith: anchor(a.inRowWith), noPush: a.noPush };
       if (!a.section && !isNew && !(o.at || o.below || o.rightOf || o.inRowWith)) {
-        problems = place(this.board, it, { at: [it.x, it.y] }).filter(p => !p.includes(' was at '));
+        problems = place(this.board, it, { at: [it.x, it.y], noPush: a.noPush }).filter(p => !p.includes(' was at '));
       } else {
         if (!a.section && (o.below || o.rightOf || o.inRowWith)) it.section = (o.below ?? o.rightOf ?? o.inRowWith)!.section;
         if (isNew || o.at || o.below || o.rightOf || o.inRowWith || it.section !== oldSection) problems = place(this.board, it, o);

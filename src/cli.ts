@@ -19,7 +19,7 @@ const HELP = `drawpad: shared visual board for a human and an agent
   outline <key> [--boxes]                 a design's visible text (x,y wxh size [b] text); --boxes adds
                                           images and visible boxes [selector bg]
   title <key> "Title"                     rename an item (no new version)
-      [--below K | --right-of K | --in-row-with K | --at x,y] [--width W] [--height H]
+      [--below K | --right-of K | --in-row-with K | --at x,y] [--width W] [--height H] [--no-push]
       [--note N] [--commit C] [--launch L] [--files a,b]   same key = new version
   add --many items.json                   [{kind,key,path|text|url,section,...}]
   capture sim --key K [--bundle ID --launch "args"] [--wait S] [add flags]
@@ -29,7 +29,7 @@ const HELP = `drawpad: shared visual board for a human and an agent
       --section: only feedback about that section (boards shared by several agents)
   crop <comment>                          path of a comment's crop png
   reply <comment> "text"     done <comment> [--artifact K]
-  arrow <from> <to> [--point x,y] [--label L]
+  arrow <from> <to> [--point x,y] [--label L]   pin a note to a spot: add text, then arrow it to an image --point 0..1
   section "Title" [keys...]  move <key> --at x,y  archive|restore <key>
   hook [--wait S]            Claude Code hook (UserPromptSubmit, PostToolUse, Stop): tells the agent when
                              sent feedback waits; on Stop, --wait S holds up to S seconds for a Send, only
@@ -42,7 +42,7 @@ const HELP = `drawpad: shared visual board for a human and an agent
   tell-dev "..."             DrawPad got in your way or cost you time/tokens? Report it (one point, what you
                              tried, what happened, what would help). Goes to DrawPad's developers.`;
 
-const BOOL = new Set(['crops', 'json', 'help', 'quiet', 'feedback', 'boxes']);
+const BOOL = new Set(['no-push', 'crops', 'json', 'help', 'quiet', 'feedback', 'boxes']);
 const KNOWN = new Set([...BOOL, 'height', 'port', 'since', 'timeout', 'version', 'wait', 'width', 'at', 'point', 'artifact', 'below', 'bundle',
   'color', 'commit', 'files', 'in-row-with', 'key', 'label', 'launch', 'many', 'note', 'right-of', 'section', 'title']);
 const argv = process.argv.slice(2);
@@ -62,8 +62,10 @@ const pair = (k: string) => { const s = str(k); if (!s) return undefined; const 
 const verb = pos.shift() ?? 'help';
 { const bad = Object.keys(fl).filter(k => !KNOWN.has(k)); if (bad.length) { process.stderr.write(`unknown flag ${bad.map(b => '--' + b).join(', ')} (see drawpad help)\n`); process.exit(1); } }
 const root = findRoot() ?? process.cwd();
+const noBoard = !findRoot(); // a command here makes a new board: say so, it may be a stray folder
 
 function out(text: string) {
+  if (noBoard && text && !['help', 'hook', 'tell-dev', 'recent', 'app', 'serve', 'stats'].includes(verb) && fs.existsSync(paths(root).board)) text = `new board in ${root} (no board in this folder or above)\n` + text;
   if (text) process.stdout.write(text.endsWith('\n') ? text : text + '\n');
   // Only what lands in the agent's context (open/app/pick/url are run by the launcher and the human too).
   if (!['open', 'app', 'pick', 'url', 'serve'].includes(verb)) try { fs.appendFileSync(paths(root).stats, JSON.stringify({ v: verb, c: text.length }) + '\n'); } catch { /* no .drawpad yet */ }
@@ -120,7 +122,7 @@ function addArgs(kind: string, src?: string) {
   const a: Record<string, unknown> = {
     kind, key: str('key'), title: str('title'), section: str('section'), at: pair('at'),
     below: str('below'), rightOf: str('right-of'), inRowWith: str('in-row-with'),
-    width: num('width'), height: num('height'), note: str('note'), color: str('color'), source: source(), by: 'agent',
+    width: num('width'), height: num('height'), note: str('note'), color: str('color'), source: source(), by: 'agent', noPush: fl['no-push'] || undefined,
   };
   if (kind === 'image' || kind === 'html') { if (!src) fail(`add ${kind} needs a path`); a.path = path.resolve(src); }
   else if (kind === 'link') a.url = src;
