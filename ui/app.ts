@@ -1196,7 +1196,7 @@ function commentsPanel() {
       `<span class="ct">${esc(cur(c).text ?? '')}</span><span class="cm2">${esc(t?.title ?? t?.key ?? '')}${n ? ` · ${n} repl${n > 1 ? 'ies' : 'y'}` : ''}${c.createdBy === 'agent' ? ' · agent' : ''}${k.status === 'open' ? ` · ${readState(c)}` : ''}</span></div>`;
   };
   const group = (title: string, list: Item[], note: string) => list.length ? `<h4>${title} <span>${list.length}</span></h4><p class="cn">${note}</p>${list.map(row).join('')}` : '';
-  setHTML($('#cpanel'), `<div class="ceye" data-c="eye" title="Show or hide comments on the canvas">${hideComments ? '⊘ Comments hidden on canvas' : '👁 Comments shown on canvas'}</div>` + group('Not sent yet', held, 'press Send to agent (⌘↩) when you are done') + group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'sent, not answered yet') +
+  setHTML($('#cpanel'), `<div class="ceye" data-c="eye" title="Show or hide comments on the canvas">Show on canvas<span class="sw${hideComments ? '' : ' on'}"></span></div>` + group('Not sent yet', held, 'press Send to agent (⌘↩) when you are done') + group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'sent, not answered yet') +
     (done.length ? `<h4 class="tog" data-c="resolved">Resolved <span>${done.length}</span> ${showResolved ? '▾' : '▸'}</h4>${showResolved ? done.map(row).join('') : ''}` : '') +
     (cs.length ? '' : '<p class="cn">No comments yet. Press C and click a screen.</p>'));
 }
