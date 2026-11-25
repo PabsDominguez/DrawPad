@@ -170,6 +170,8 @@ body.cp #view { right: 290px; }
 #cpanel h4 { margin: 12px 12px 0; font-size: 12px; font-weight: 600; }
 #cpanel h4 span { color: var(--dim); font-weight: 400; }
 #cpanel h4.tog { cursor: pointer; }
+#cpanel .ceye { margin: 4px 12px 0; padding: 5px 8px; border-radius: 6px; cursor: pointer; color: var(--dim); font-size: 12px; user-select: none; }
+#cpanel .ceye:hover { background: var(--sec); }
 #cpanel .cn { margin: 2px 12px 6px; color: var(--dim); font-size: 11px; }
 #cpanel .crow { padding: 7px 12px; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: baseline; }
 #cpanel .crow:hover { background: var(--sec); }

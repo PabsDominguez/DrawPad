@@ -55,7 +55,9 @@ const cur = (it: Item) => it.versions[it.versions.length - 1];
 const active = () => board!.items.filter(i => i.state === 'active');
 // Resolved comments leave the canvas (they stay in the comments panel); clicking one there shows it until deselected.
 let shownId = '';
-const hidden = (i: Item) => i.comment?.status === 'resolved' && i.id !== shownId;
+// The eye in the comments panel hides every comment from the canvas.
+let hideComments = !!localStorage.getItem('hidecm');
+const hidden = (i: Item) => !!i.comment && (i.comment.status === 'resolved' || hideComments) && i.id !== shownId;
 const solid = () => active().filter(i => i.kind !== 'arrow' && i.kind !== 'mark' && !hidden(i));
 // A drawing's ends in world coords (null when the item it is drawn on is gone).
 function markPts(m: Item): [number, number, number, number] | null {
@@ -108,7 +110,18 @@ function sectionRect(s: Section): Rect {
 const pinArrow = (it: Item) => it.comment ? active().find(a => a.kind === 'arrow' && a.from === it.id && a.toPoint) : undefined;
 const closed = (it: Item) => !!pinArrow(it) && !opened.has(it.id);
 function toggleOpen(it: Item) {
-  if (opened.has(it.id)) opened.delete(it.id); else opened.add(it.id);
+  if (opened.has(it.id)) opened.delete(it.id); else {
+    opened.add(it.id);
+    // Open beside its pin (Figma-like), on top of the screen, so it is in view and clearly tied to its spot.
+    const a = pinArrow(it), t = a && byId.get(a.to!);
+    if (a && t) {
+      const k = 1 / view.z, px = t.x + a.toPoint![0] * t.w, py = t.y + a.toPoint![1] * t.h;
+      const [, top] = toWorld(8, 8), [r, b] = toWorld(innerWidth - 8, innerHeight - 8), W = 270 * k;
+      it.x = px + 14 * k + W > r ? px - 14 * k - W : px + 14 * k;
+      it.y = Math.min(Math.max(top, py - 14 * k), b - it.h * k);
+      op({ op: 'move', id: it.id, x: it.x, y: it.y, by: 'agent' }).catch(() => {});
+    }
+  }
   localStorage.setItem('open-' + board!.id, JSON.stringify([...opened]));
   if (opened.has(it.id) && !it.seenByHuman) op({ op: 'seen', ids: [it.id] }).catch(() => {});
   render();
@@ -1183,7 +1196,7 @@ function commentsPanel() {
       `<span class="ct">${esc(cur(c).text ?? '')}</span><span class="cm2">${esc(t?.title ?? t?.key ?? '')}${n ? ` · ${n} repl${n > 1 ? 'ies' : 'y'}` : ''}${c.createdBy === 'agent' ? ' · agent' : ''}${k.status === 'open' ? ` · ${readState(c)}` : ''}</span></div>`;
   };
   const group = (title: string, list: Item[], note: string) => list.length ? `<h4>${title} <span>${list.length}</span></h4><p class="cn">${note}</p>${list.map(row).join('')}` : '';
-  setHTML($('#cpanel'), group('Not sent yet', held, 'press Send to agent (⌘↩) when you are done') + group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'sent, not answered yet') +
+  setHTML($('#cpanel'), `<div class="ceye" data-c="eye" title="Show or hide comments on the canvas">${hideComments ? '⊘ Comments hidden on canvas' : '👁 Comments shown on canvas'}</div>` + group('Not sent yet', held, 'press Send to agent (⌘↩) when you are done') + group('For you', needs, 'agent replied or marked done') + group('With the agent', waiting, 'sent, not answered yet') +
     (done.length ? `<h4 class="tog" data-c="resolved">Resolved <span>${done.length}</span> ${showResolved ? '▾' : '▸'}</h4>${showResolved ? done.map(row).join('') : ''}` : '') +
     (cs.length ? '' : '<p class="cn">No comments yet. Press C and click a screen.</p>'));
 }
@@ -1193,6 +1206,7 @@ document.addEventListener('click', e => {
   const r = t.closest('#cpanel [data-c]') as HTMLElement | null;
   if (!r) return;
   if (r.dataset.c === 'resolved') { showResolved = !showResolved; return commentsPanel(); }
+  if (r.dataset.c === 'eye') { hideComments = !hideComments; localStorage.setItem('hidecm', hideComments ? '1' : ''); shownId = ''; render(); return commentsPanel(); }
   const c = byId.get(r.dataset.c!); if (!c) return;
   const tg = byId.get(c.comment!.target!);
   // The screen plus the card's corner (cards keep screen size, so leave ~its size around it).

@@ -173,6 +173,11 @@ try {
   check('comments panel lists the comment', (await ev(`document.querySelector('#cpanel').textContent`)).includes('Header too heavy'));
   await ev(`document.querySelector('#cpanel .crow').click()`); await sleep(600);
   check('row opens its comment', await ev(`document.querySelectorAll('.item.cm:not(.closed)').length`) >= 1);
+  check('opened comment sits by its pin, on screen', await ev(`(()=>{const c=document.querySelector('.item.cm:not(.closed)').getBoundingClientRect(),p=document.querySelector('.clink circle, .pin')?.getBoundingClientRect();return c.left>=0&&c.right<=innerWidth&&c.top>=0&&(!p||Math.abs(c.left-p.right)<60||Math.abs(p.left-c.right)<60)})()`));
+  await ev(`document.querySelector('#cpanel .ceye').click()`); await sleep(300);
+  check('eye hides comments', await ev(`document.querySelectorAll('.item.cm').length`) === 0);
+  await ev(`document.querySelector('#cpanel .ceye').click()`); await sleep(300);
+  check('eye shows comments', await ev(`document.querySelectorAll('.item.cm').length`) >= 1);
   check('open comment above screens', await ev(`getComputedStyle(document.querySelector('.item.cm')).zIndex`) === '50000');
   if (process.env.SHOT3) fs.writeFileSync(process.env.SHOT3, Buffer.from((await cmd('Page.captureScreenshot')).result.data, 'base64'));
   await ev(`document.querySelector('#cbtn').click()`);
