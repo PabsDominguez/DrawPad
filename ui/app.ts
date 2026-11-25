@@ -53,7 +53,10 @@ async function upload(blob: Blob, ext: string, prefix = 'up'): Promise<string> {
 }
 const cur = (it: Item) => it.versions[it.versions.length - 1];
 const active = () => board!.items.filter(i => i.state === 'active');
-const solid = () => active().filter(i => i.kind !== 'arrow' && i.kind !== 'mark');
+// Resolved comments leave the canvas (they stay in the comments panel); clicking one there shows it until deselected.
+let shownId = '';
+const hidden = (i: Item) => i.comment?.status === 'resolved' && i.id !== shownId;
+const solid = () => active().filter(i => i.kind !== 'arrow' && i.kind !== 'mark' && !hidden(i));
 // A drawing's ends in world coords (null when the item it is drawn on is gone).
 function markPts(m: Item): [number, number, number, number] | null {
   const k = m.mark!, p = k.pts;
@@ -266,6 +269,7 @@ function content(it: Item): string {
 
 function render() {
   if (!board) return;
+  if (shownId && !sel.has(shownId)) shownId = '';
   const live = new Set<string>();
   for (const it of solid()) {
     live.add(it.id);
@@ -355,7 +359,7 @@ function drawArrows() {
   for (const a of active()) {
     if (a.kind !== 'arrow') continue;
     const f = byId.get(a.from!), t = byId.get(a.to!);
-    if (!f || !t || f.state !== 'active' || t.state !== 'active') continue;
+    if (!f || !t || f.state !== 'active' || t.state !== 'active' || hidden(f)) continue;
     const end: [number, number] = a.toPoint ? [t.x + a.toPoint[0] * t.w, t.y + a.toPoint[1] * t.h] : edge(t, [f.x + f.w / 2, f.y + f.h / 2]);
     if (f.comment && a.toPoint) { html += commentLink(f, a, end, k); continue; }
     const start = edge(f, end);
@@ -1189,8 +1193,8 @@ document.addEventListener('click', e => {
   const tg = byId.get(c.comment!.target!);
   // The screen plus the card's corner (cards keep screen size, so leave ~its size around it).
   fit(bbox([...(tg ? [tg] : []), { x: c.x, y: c.y, w: 260, h: 160 }]));
-  if (closed(c)) toggleOpen(c);
-  sel = new Set([c.id]); render();
+  sel = new Set([c.id]); shownId = c.id;
+  if (closed(c)) toggleOpen(c); else render();
 });
 if (localStorage.getItem('cp')) document.body.classList.add('cp');
 

@@ -192,6 +192,14 @@ try {
   check('agent working pill', await ev(`(()=>{const a=document.querySelector('#agent');return !a.hidden && a.textContent})()`) === 'Agent working');
   dp('add', 'html', 'page.html', '--key', 'web'); await sleep(900);
   check('agent update glows', await ev(`document.querySelector('[data-id="${(await byKey('web')).id}"]').classList.contains('glow')`));
+  // Resolved comments leave the canvas but stay in the panel; clicking one there shows it again.
+  const rc = (await board()).items.find(i => i.comment && i.state === 'active');
+  await fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify({ op: 'status', id: rc.id, status: 'resolved' }) }); await sleep(800);
+  check('resolved comment hidden on canvas', await ev(`!document.querySelector('[data-id="${rc.id}"]')`));
+  await ev(`document.body.classList.add('cp'); document.querySelector('#cbtn').click(); document.querySelector('#cbtn').click()`); await sleep(300);
+  await ev(`document.querySelector('#cpanel [data-c="resolved"]').click()`); await sleep(300);
+  await ev(`document.querySelector('#cpanel [data-c="${rc.id}"]').click()`); await sleep(600);
+  check('resolved comment shown from panel', await ev(`!!document.querySelector('[data-id="${rc.id}"]')`));
   // Board switcher: menu opens (lists real projects; never clicked here), unknown roots are refused.
   await ev(`document.querySelector('#proj').click()`); await sleep(500);
   check('board menu opens', await ev(`!document.querySelector('#projmenu').hidden`));
