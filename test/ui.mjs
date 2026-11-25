@@ -185,6 +185,7 @@ try {
   check('right-click menu on a screen', menu.includes('Comment here') && menu.includes('Delete'), menu);
   const mi = await ev(`(()=>{const r=[...document.querySelectorAll('#cmenu button')].find(b => b.textContent.startsWith('Comment here')).getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})()`);
   await click(mi); // a real mouse click, not .click()
+  check('comment editor opens on screen', await ev(`(()=>{const r=document.querySelector('.editor').getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()`));
   await type('From the menu');
   check('menu comment created', (await board()).items.filter(i => i.comment && i.state === 'active').length === nC + 1);
   // Agent activity: the hook marks the agent working (pill); an agent update glows where it lands.

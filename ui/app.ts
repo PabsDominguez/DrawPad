@@ -853,7 +853,11 @@ view$.addEventListener('pointerdown', e => {
 });
 // Writes a new comment pinned at point (0..1 of target); mark is the pin/region shown while typing.
 function commentEditor(target: Item, point: [number, number], region: [number, number, number, number] | undefined, mark: HTMLElement) {
-  editor({ x: target.x + target.w + 40, y: target.y + point[1] * target.h - 20, w: 240, mode: 'comment', placeholder: 'What should change here?',
+  // Open beside the pin, on screen (flip left / clamp at the window edges) so it is never out of view.
+  const k = 1 / view.z, px = target.x + point[0] * target.w, py = target.y + point[1] * target.h;
+  const [l, t] = toWorld(8, 8), [r, b] = toWorld(innerWidth - 8, innerHeight - 8), W = 270 * k, H = 130 * k;
+  const ex = px + 16 * k + W > r ? Math.max(l, px - 16 * k - W) : px + 16 * k;
+  editor({ x: ex, y: Math.min(Math.max(t, py - 20 * k), b - H), w: 240, mode: 'comment', placeholder: 'What should change here?',
     onSave: async (text, intent) => {
       const crop = await makeCrop(target, point, region).catch(() => undefined);
       mark.remove();
