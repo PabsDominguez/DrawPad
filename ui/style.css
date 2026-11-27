@@ -23,7 +23,6 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 #outline .lt { align-items: center; }
 #outline .lt .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 #outline .lt .n { white-space: nowrap; }
-#outline .lt i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; margin-left: -9px; margin-right: -3px; }
 #outline .n { color: var(--dim); margin-left: auto; font-size: 11px; }
 #outline .c { color: #000; background: #f4c542; border-radius: 8px; padding: 0 5px; font-size: 11px; }
 #outline .u { color: #fff; background: var(--accent); border-radius: 8px; padding: 0 5px; font-size: 11px; }

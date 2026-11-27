@@ -422,7 +422,7 @@ function outline() {
   // Latest from the agent: newest made or updated first; click to jump there.
   const ago = (t: string) => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return m < 1 ? 'now' : m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
   const latest = solid().filter(i => i.createdBy === 'agent' && !i.comment).sort((p, q) => Date.parse(cur(q).at) - Date.parse(cur(p).at)).slice(0, 6);
-  if (latest.length) html += `<h5>Latest from agent</h5>` + latest.map(i => `<div class="lt" data-item="${i.id}" title="${esc(i.key)}">${i.seenByHuman ? '' : '<i></i>'}<span class="name">${esc(i.title ?? i.key)}</span><span class="n">${i.versions.length > 1 ? `v${i.versions.length} · ` : ''}${ago(cur(i).at)}</span></div>`).join('');
+  if (latest.length) html += `<h5>Latest from agent</h5>` + latest.map(i => `<div class="lt" data-item="${i.id}" title="${esc(i.key)}"><span class="name">${esc(i.title ?? i.key)}</span><span class="n">${i.versions.length > 1 ? `v${i.versions.length} · ` : ''}${ago(cur(i).at)}</span></div>`).join('');
   setHTML(o, html);
 }
 let lastWaiting = -1;
