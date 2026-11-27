@@ -200,6 +200,9 @@ try {
   check('agent working pill', await ev(`(()=>{const a=document.querySelector('#agent');return !a.hidden && a.textContent})()`) === 'Agent working');
   dp('add', 'html', 'page.html', '--key', 'web'); await sleep(900);
   check('agent update glows', await ev(`document.querySelector('[data-id="${(await byKey('web')).id}"]').classList.contains('glow')`));
+  check('latest from agent lists the update first', await ev(`document.querySelector('#outline .lt')?.dataset.item`) === (await byKey('web')).id);
+  await ev(`document.querySelector('#outline .lt').click()`); await sleep(300);
+  check('latest row selects the item', await ev(`document.querySelector('[data-id="${(await byKey('web')).id}"]').classList.contains('sel')`));
   // Resolved comments leave the canvas but stay in the panel; clicking one there shows it again.
   const rc = (await board()).items.find(i => i.comment && i.state === 'active');
   await fetch(URL_ + 'api/op', { method: 'POST', body: JSON.stringify({ op: 'status', id: rc.id, status: 'resolved' }) }); await sleep(800);

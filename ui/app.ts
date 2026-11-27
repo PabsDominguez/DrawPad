@@ -419,6 +419,10 @@ function outline() {
   for (const s of b.sections) html += row(s.title, new Set(solid().filter(i => i.section === s.id).map(i => i.id)), s.id);
   const loose = solid().filter(i => !b.sections.some(s => s.id === i.section));
   if (loose.length) html += row('Inbox / loose', new Set(loose.map(i => i.id)), '~');
+  // Latest from the agent: newest made or updated first; click to jump there.
+  const ago = (t: string) => { const m = Math.round((Date.now() - Date.parse(t)) / 60000); return m < 1 ? 'now' : m < 60 ? `${m}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
+  const latest = solid().filter(i => i.createdBy === 'agent' && !i.comment).sort((p, q) => Date.parse(cur(q).at) - Date.parse(cur(p).at)).slice(0, 6);
+  if (latest.length) html += `<h5>Latest from agent</h5>` + latest.map(i => `<div class="lt" data-item="${i.id}" title="${esc(i.key)}">${i.seenByHuman ? '' : '<i></i>'}<span class="name">${esc(i.title ?? i.key)}</span><span class="n">${i.versions.length > 1 ? `v${i.versions.length} · ` : ''}${ago(cur(i).at)}</span></div>`).join('');
   setHTML(o, html);
 }
 let lastWaiting = -1;
@@ -1118,6 +1122,8 @@ $('#theme').onclick = () => {
 };
 if (localStorage.getItem('theme') === 'light') { document.body.className = 'light'; }
 $('#outline').addEventListener('click', e => {
+  const li = (e.target as HTMLElement).closest('[data-item]') as HTMLElement | null, it = li && byId.get(li.dataset.item!);
+  if (it) { fit(bbox([it])); return select([it.id]); }
   const d = (e.target as HTMLElement).closest('[data-key]') as HTMLElement | null;
   if (!d || !board || d.querySelector('[contenteditable="true"]')) return;
   const k = d.dataset.key!;
