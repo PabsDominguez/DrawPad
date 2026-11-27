@@ -166,7 +166,7 @@ function pick(): string {
 const APP = path.join(os.homedir(), 'Applications', 'DrawPad.app');
 const NATIVE = path.join(APP, 'Contents', 'MacOS', 'DrawPad');
 const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect x="100" y="100" width="824" height="824" rx="190" fill="#1d1f25"/>
-<rect x="250" y="250" width="300" height="400" rx="28" fill="#4c8dff"/><rect x="590" y="250" width="184" height="250" rx="28" fill="#3a3c42"/>
+<rect x="250" y="250" width="300" height="400" rx="28" fill="#8b5cf6"/><rect x="590" y="250" width="184" height="250" rx="28" fill="#3a3c42"/>
 <circle cx="680" cy="660" r="56" fill="#f4c542"/><path d="M640 610 L560 540" stroke="#f4c542" stroke-width="22" stroke-linecap="round"/></svg>`;
 async function makeApp(): Promise<string> {
   const c = path.join(APP, 'Contents');

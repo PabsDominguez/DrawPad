@@ -2,7 +2,7 @@
 html, body { margin: 0; height: 100%; overflow: hidden; font: 13px/1.4 -apple-system, system-ui, sans-serif; }
 body.dark { --bg: #17181b; --dot: #2a2c31; --fg: #e6e6e6; --dim: #8b8f98; --card: #26272c; --line: #3a3c42; --sec: rgba(255,255,255,.035); --note: #3a3418; }
 body.light { --bg: #eceef1; --dot: #d6d9de; --fg: #1d1f23; --dim: #6b7079; --card: #fff; --line: #cfd3da; --sec: rgba(0,0,0,.035); --note: #fff6c8; }
-body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a4f; }
+body { background: var(--bg); color: var(--fg); --accent: #8b5cf6; --warn: #ff5a4f; }
 
 #bar { position: fixed; top: 0; left: 0; right: 0; height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 8px;
   background: var(--card); border-bottom: 1px solid var(--line); z-index: 10; }
@@ -108,7 +108,7 @@ body { background: var(--bg); color: var(--fg); --accent: #4c8dff; --warn: #ff5a
 .section .shandle { display: none; pointer-events: auto; }
 .section.sel .shandle { display: block; }
 .sectitle:hover { color: var(--accent); }
-.marquee { position: absolute; border: calc(1px * var(--inv)) solid var(--accent); background: rgba(76,141,255,.08); pointer-events: none; z-index: 100002; }
+.marquee { position: absolute; border: calc(1px * var(--inv)) solid var(--accent); background: rgba(139,92,246,.08); pointer-events: none; z-index: 100002; }
 .framebox { position: absolute; border: calc(1.5px * var(--inv)) dashed var(--accent); border-radius: 10px; background: var(--sec); pointer-events: none; z-index: 100002; }
 .item.closed { display: none; }
 #arrows .clink .ln { stroke: var(--dim); fill: none; }
